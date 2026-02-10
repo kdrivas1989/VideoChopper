@@ -1,0 +1,19 @@
+#!/bin/bash
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../Resources" && pwd )"
+cd "$DIR"
+
+# Kill any existing instance
+pkill -f "python3.*app.py" 2>/dev/null
+
+# Start server
+/usr/bin/python3 app.py &
+SERVER_PID=$!
+
+# Wait for server
+sleep 2
+
+# Open browser
+open "http://127.0.0.1:5050"
+
+# Keep running until browser closes or user quits
+wait $SERVER_PID

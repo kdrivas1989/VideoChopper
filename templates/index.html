@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Video Chopper</title>
+
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#3b82f6">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="VidTrim">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js"></script>
+    <style>
+        .dropzone {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.2s;
+        }
+        .dropzone.dragover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        .progress-bar {
+            transition: width 0.3s;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 50;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active {
+            display: flex;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center">Video Chopper</h1>
+
+        <!-- Upload Area -->
+        <div id="dropzone" class="dropzone bg-white rounded-lg p-8 mb-6 text-center cursor-pointer">
+            <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <p class="text-gray-600 mb-2">Drop video files here</p>
+            <p class="text-sm text-gray-400 mb-4">MP4, AVI, MOV, MKV, WMV, FLV, WebM, MTS</p>
+            <input type="file" id="fileInput" multiple
+                onchange="handleFileSelect(this.files)"
+                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 file:cursor-pointer cursor-pointer">
+        </div>
+
+        <!-- Video List -->
+        <div id="videoListContainer" class="hidden">
+            <h2 class="text-lg font-semibold text-gray-700 mb-3">Videos</h2>
+            <div id="videoList" class="space-y-3"></div>
+        </div>
+
+        <!-- Export Button -->
+        <div id="trimAllContainer" class="hidden mt-6 text-center">
+            <button onclick="exportCSV()" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 px-8 rounded-lg transition">
+                Export CSV
+            </button>
+        </div>
+    </div>
+
+    <!-- Video Preview Modal -->
+    <div id="previewModal" class="modal">
+        <div id="previewContainer" class="bg-white rounded-lg p-3 w-full mx-2 transition-all duration-200" style="max-width: 1500px;">
+            <div class="flex justify-between items-center mb-2 gap-2">
+                <input type="text" id="previewFilename" class="flex-1 text-sm font-semibold text-gray-800 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                <div class="flex items-center gap-1">
+                    <span class="text-xs text-gray-400 mr-1">Size:</span>
+                    <button onclick="setPreviewSize('sm')" class="preview-size-btn px-2 py-0.5 text-xs rounded bg-gray-200 hover:bg-gray-300" data-size="sm">S</button>
+                    <button onclick="setPreviewSize('md')" class="preview-size-btn px-2 py-0.5 text-xs rounded bg-gray-200 hover:bg-gray-300" data-size="md">M</button>
+                    <button onclick="setPreviewSize('lg')" class="preview-size-btn px-2 py-0.5 text-xs rounded bg-blue-500 text-white" data-size="lg">L</button>
+                    <button onclick="setPreviewSize('xl')" class="preview-size-btn px-2 py-0.5 text-xs rounded bg-gray-200 hover:bg-gray-300" data-size="xl">XL</button>
+                    <button onclick="closePreview()" class="text-gray-500 hover:text-gray-700 text-xl ml-2">&times;</button>
+                </div>
+            </div>
+            <video id="previewVideo" class="w-full bg-black rounded" style="max-height: 88vh;" controls preload="auto" tabindex="-1">
+                Your browser does not support video playback.
+            </video>
+            <div id="videoError" class="hidden text-center text-xs mt-1 p-2 bg-orange-50 rounded">
+                <p id="previewStatusText" class="text-orange-600">
+                    <span class="inline-block animate-spin mr-1">⟳</span> Generating playable preview...
+                </p>
+                <button onclick="openVideoInNewTab()" class="mt-2 text-blue-600 hover:underline text-xs">
+                    Open in QuickTime instead
+                </button>
+            </div>
+            <div class="mt-2 space-y-2">
+                <!-- Current time, duration selector, and video duration -->
+                <div class="flex justify-center items-center gap-4 text-sm flex-wrap">
+                    <div><span class="text-gray-500">Current:</span> <span id="currentTime" class="font-mono font-semibold">0:00.000</span></div>
+                    <div class="flex items-center gap-2 bg-gray-100 px-3 py-1 rounded-lg">
+                        <span class="text-gray-500 text-xs">Round:</span>
+                        <input type="text" id="globalRoundInput" placeholder="#" class="w-12 px-2 py-1 rounded text-sm font-semibold border-0 bg-white text-center" onchange="setGlobalRound(this.value)">
+                    </div>
+                    <div class="flex items-center gap-2 bg-gray-100 px-3 py-1 rounded-lg">
+                        <span class="text-gray-500 text-xs">Duration:</span>
+                        <button id="duration45Btn" onclick="setSegmentDuration(45)" class="px-3 py-1 rounded text-sm font-semibold bg-blue-500 text-white">
+                            45s
+                        </button>
+                        <button id="duration60Btn" onclick="setSegmentDuration(60)" class="px-3 py-1 rounded text-sm font-semibold bg-gray-300 text-gray-700 hover:bg-gray-400">
+                            1m
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-2 bg-gray-100 px-3 py-1 rounded-lg">
+                        <span class="text-gray-500 text-xs">Segments:</span>
+                        <select id="segmentCountSelect" onchange="setVisibleSegments(parseInt(this.value))" class="px-2 py-1 rounded text-sm font-semibold border-0 bg-white">
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
+                            <option value="9">9</option>
+                            <option value="10" selected>10</option>
+                            <option value="11">11</option>
+                            <option value="12">12</option>
+                        </select>
+                    </div>
+                    <div><span class="text-gray-500">Total:</span> <span id="videoDuration" class="font-mono font-semibold text-gray-600">--</span></div>
+                </div>
+                <!-- 10 Segments Grid -->
+                <div id="previewSegments" class="grid grid-cols-2 md:grid-cols-5 gap-2 py-2 border-t border-b border-gray-200 max-h-64 overflow-y-auto">
+                    <!-- Segments will be rendered here -->
+                </div>
+                <!-- Bottom controls -->
+                <div class="flex flex-wrap gap-2 items-center justify-center">
+                    <button onclick="saveTimesAndClose()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded text-sm font-semibold">
+                        Save & Trim [T]
+                    </button>
+                </div>
+                <div class="text-center text-xs text-gray-400">
+                    Keys: 1-9,0=Seg 1-10, S=Start (auto-sets end), E=End, T=Save, Space=Play, ←/→=Frame
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const videoList = document.getElementById('videoList');
+        const trimAllContainer = document.getElementById('trimAllContainer');
+        const MAX_SEGMENTS = 12;
+        let visibleSegments = 10; // Default number of visible segments
+
+        let videos = {};
+        // Track current segment being edited in preview modal
+        let currentSegmentIndex = 0;
+        // Segment duration in seconds (45 or 60)
+        let segmentDuration = 45;
+        // Global round number for all segments
+        let globalRound = '';
+
+        function setSegmentDuration(duration) {
+            segmentDuration = duration;
+            const btn45 = document.getElementById('duration45Btn');
+            const btn60 = document.getElementById('duration60Btn');
+            if (duration === 45) {
+                btn45.className = 'px-3 py-1 rounded text-sm font-semibold bg-blue-500 text-white';
+                btn60.className = 'px-3 py-1 rounded text-sm font-semibold bg-gray-300 text-gray-700 hover:bg-gray-400';
+            } else {
+                btn45.className = 'px-3 py-1 rounded text-sm font-semibold bg-gray-300 text-gray-700 hover:bg-gray-400';
+                btn60.className = 'px-3 py-1 rounded text-sm font-semibold bg-blue-500 text-white';
+            }
+        }
+
+        function setVisibleSegments(count) {
+            visibleSegments = count;
+            if (currentSegmentIndex >= count) {
+                currentSegmentIndex = count - 1;
+            }
+            renderPreviewSegments();
+        }
+
+        function setGlobalRound(value) {
+            globalRound = value;
+            // Apply to all segments of current video
+            if (currentPreviewId && videos[currentPreviewId]) {
+                const segments = videos[currentPreviewId].segments || [];
+                segments.forEach(seg => {
+                    seg.round = value;
+                });
+                renderPreviewSegments();
+                refreshSegmentsDisplay(currentPreviewId);
+            }
+        }
+
+        // Drag and drop handlers
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            handleFileSelect(e.dataTransfer.files);
+        });
+
+        const MAX_FILE_SIZE_MB = 500; // Max file size in MB
+        let ffmpeg = null;
+        let ffmpegLoaded = false;
+
+        async function loadFFmpeg() {
+            if (ffmpegLoaded) return true;
+            try {
+                const { FFmpeg } = FFmpegWASM;
+                ffmpeg = new FFmpeg();
+                ffmpeg.on('progress', ({ progress }) => {
+                    const percent = Math.round(progress * 100);
+                    updateCompressProgress(percent);
+                });
+                await ffmpeg.load({
+                    coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+                });
+                ffmpegLoaded = true;
+                return true;
+            } catch (e) {
+                console.error('FFmpeg load failed:', e);
+                return false;
+            }
+        }
+
+        let currentCompressId = null;
+        function updateCompressProgress(percent) {
+            if (currentCompressId) {
+                updateUploadProgress(currentCompressId, percent, `Compressing... ${percent}%`);
+            }
+        }
+
+        async function compressVideo(file) {
+            const { fetchFile } = FFmpegUtil;
+            const inputName = 'input' + file.name.substring(file.name.lastIndexOf('.'));
+            const outputName = 'compressed.mp4';
+
+            await ffmpeg.writeFile(inputName, await fetchFile(file));
+
+            // Compress to 720p, lower bitrate
+            await ffmpeg.exec([
+                '-i', inputName,
+                '-vf', 'scale=-2:720',
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-crf', '28',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                outputName
+            ]);
+
+            const data = await ffmpeg.readFile(outputName);
+            await ffmpeg.deleteFile(inputName);
+            await ffmpeg.deleteFile(outputName);
+
+            return new File([data.buffer], file.name.replace(/\.[^/.]+$/, '_compressed.mp4'), { type: 'video/mp4' });
+        }
+
+        async function handleFileSelect(files) {
+            console.log('Files selected:', files.length);
+            for (const file of files) {
+                const fileSizeMB = file.size / (1024 * 1024);
+                console.log('File:', file.name, 'Size:', fileSizeMB.toFixed(1), 'MB');
+
+                if (fileSizeMB > MAX_FILE_SIZE_MB) {
+                    const shouldCompress = confirm(`File "${file.name}" is ${fileSizeMB.toFixed(0)} MB.\n\nCompress before uploading?\n\n(This may take a few minutes)`);
+                    if (shouldCompress) {
+                        await uploadFileWithCompression(file);
+                    }
+                    continue;
+                }
+
+                uploadFile(file);
+            }
+            fileInput.value = ''; // Reset so same file can be selected again
+        }
+
+        async function uploadFileWithCompression(file) {
+            const tempId = 'temp-' + Date.now();
+            currentCompressId = tempId;
+            addVideoCard(tempId, file.name, 0, '00:00:00', true);
+            updateUploadProgress(tempId, 0, 'Loading compressor...');
+
+            try {
+                const loaded = await loadFFmpeg();
+                if (!loaded) {
+                    alert('Failed to load video compressor. Uploading original file.');
+                    currentCompressId = null;
+                    removeVideoCard(tempId);
+                    uploadFile(file);
+                    return;
+                }
+
+                updateUploadProgress(tempId, 0, 'Compressing...');
+                const compressedFile = await compressVideo(file);
+                currentCompressId = null;
+
+                const originalMB = (file.size / (1024 * 1024)).toFixed(1);
+                const compressedMB = (compressedFile.size / (1024 * 1024)).toFixed(1);
+                console.log(`Compressed: ${originalMB} MB → ${compressedMB} MB`);
+
+                removeVideoCard(tempId);
+                uploadFile(compressedFile);
+            } catch (e) {
+                console.error('Compression failed:', e);
+                alert('Compression failed: ' + e.message + '\n\nUploading original file.');
+                currentCompressId = null;
+                removeVideoCard(tempId);
+                uploadFile(file);
+            }
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Create placeholder card with progress
+            const tempId = 'temp-' + Date.now();
+            addVideoCard(tempId, file.name, 0, '00:00:00', true);
+
+            // Format file size
+            const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+            updateUploadProgress(tempId, 0, `0/${fileSizeMB} MB`);
+
+            // Fallback animation for iOS (progress events unreliable)
+            let fakeProgress = 0;
+            let uploadComplete = false;
+            const progressInterval = setInterval(() => {
+                if (uploadComplete) {
+                    fakeProgress = 100;
+                } else if (fakeProgress < 95) {
+                    fakeProgress += Math.random() * 3;
+                    fakeProgress = Math.min(fakeProgress, 95);
+                }
+            }, 500);
+
+            try {
+                // Use XMLHttpRequest for upload progress
+                const data = await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    let hasRealProgress = false;
+
+                    xhr.upload.addEventListener('progress', (e) => {
+                        if (e.lengthComputable) {
+                            hasRealProgress = true;
+                            const percent = Math.round((e.loaded / e.total) * 100);
+                            const loadedMB = (e.loaded / (1024 * 1024)).toFixed(1);
+                            updateUploadProgress(tempId, percent, `${loadedMB}/${fileSizeMB} MB`);
+                            if (percent >= 100) {
+                                uploadComplete = true;
+                            }
+                        }
+                    });
+
+                    xhr.upload.addEventListener('load', () => {
+                        uploadComplete = true;
+                        updateUploadProgress(tempId, 100, 'Processing video...');
+                    });
+
+                    // Fallback progress updater
+                    const fallbackInterval = setInterval(() => {
+                        if (uploadComplete) {
+                            updateUploadProgress(tempId, 100, 'Processing video...');
+                        } else if (!hasRealProgress && fakeProgress > 0) {
+                            updateUploadProgress(tempId, Math.round(fakeProgress), `Uploading ${fileSizeMB} MB...`);
+                        }
+                    }, 500);
+
+                    xhr.addEventListener('load', () => {
+                        clearInterval(fallbackInterval);
+                        clearInterval(progressInterval);
+                        updateUploadProgress(tempId, 100, `${fileSizeMB}/${fileSizeMB} MB`);
+
+                        if (xhr.status === 200) {
+                            try {
+                                resolve(JSON.parse(xhr.responseText));
+                            } catch (e) {
+                                reject(new Error('Invalid response'));
+                            }
+                        } else {
+                            try {
+                                const err = JSON.parse(xhr.responseText);
+                                reject(new Error(err.error || 'Upload failed'));
+                            } catch (e) {
+                                reject(new Error('Upload failed: ' + xhr.status));
+                            }
+                        }
+                    });
+
+                    xhr.addEventListener('error', () => {
+                        clearInterval(fallbackInterval);
+                        clearInterval(progressInterval);
+                        reject(new Error('Network error'));
+                    });
+                    xhr.addEventListener('abort', () => {
+                        clearInterval(fallbackInterval);
+                        clearInterval(progressInterval);
+                        reject(new Error('Upload cancelled'));
+                    });
+
+                    xhr.open('POST', '/upload');
+                    xhr.send(formData);
+                });
+
+                clearInterval(progressInterval);
+
+                // Remove placeholder and add real card
+                removeVideoCard(tempId);
+                // Store start and end times
+                data.start_time = data.start_time || '0.000s';
+                data.end_time = data.end_time || data.duration_str;
+
+                // Initialize segments array with one default segment
+                data.segments = [{ start: '0.000s', end: data.duration_str || '0.000s', team: '', round: '' }];
+
+                // Check for duplicate filename
+                const isDuplicate = Object.values(videos).some(v => v.filename === data.filename);
+                data.isDuplicate = isDuplicate;
+
+                videos[data.id] = data;
+                addVideoCard(data.id, data.filename, data.duration, data.duration_str, false, data.browser_playable, isDuplicate);
+                updateTrimAllVisibility();
+
+                // If not browser playable, poll for transcoding completion
+                if (!data.browser_playable) {
+                    pollTranscodeStatus(data.id);
+                }
+            } catch (error) {
+                removeVideoCard(tempId);
+                alert('Upload failed: ' + error.message);
+            }
+        }
+
+        function updateUploadProgress(tempId, percent, sizeText) {
+            const card = document.getElementById(`card-${tempId}`);
+            if (!card) return;
+
+            const progressBar = card.querySelector('.upload-progress-bar');
+            const progressText = card.querySelector('.upload-progress-text');
+            const sizeInfo = card.querySelector('.upload-size-info');
+
+            if (progressBar) progressBar.style.width = percent + '%';
+            if (progressText) progressText.textContent = percent + '%';
+            if (sizeInfo) sizeInfo.textContent = sizeText;
+        }
+
+        const videoListContainer = document.getElementById('videoListContainer');
+
+        function addVideoCard(id, filename, duration, durationStr, loading, browserPlayable = true, isDuplicate = false) {
+            // Show the container
+            videoListContainer.classList.remove('hidden');
+
+            const card = document.createElement('div');
+            card.id = `card-${id}`;
+
+            if (isDuplicate) {
+                card.className = 'bg-red-100 rounded-lg p-4 shadow border-l-4 border-red-500';
+            } else {
+                card.className = 'bg-white rounded-lg p-4 shadow border-l-4 border-blue-500';
+            }
+
+            if (loading) {
+                card.className += ' border-yellow-500';
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center">
+                            <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
+                            <span class="text-gray-700 font-medium">${filename}</span>
+                        </div>
+                        <div class="text-sm text-yellow-600 font-medium">
+                            <span class="upload-progress-text">0%</span>
+                            <span class="upload-size-info ml-2 text-gray-500"></span>
+                        </div>
+                    </div>
+                    <div class="bg-gray-200 rounded-full h-2">
+                        <div class="upload-progress-bar bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                `;
+            } else {
+                // Initialize segments array if not present
+                if (!videos[id]) {
+                    videos[id] = { segments: [] };
+                }
+                if (!videos[id].segments || videos[id].segments.length === 0) {
+                    videos[id].segments = [{ start: '0.000s', end: durationStr, team: '', round: '' }];
+                }
+
+                card.innerHTML = `
+                    <div class="flex flex-wrap items-center gap-4">
+                        <div class="flex-1 min-w-[200px]">
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="name-${id}" value="${filename.replace(/\.[^/.]+$/, '')}"
+                                    class="font-medium text-gray-800 flex-1 border-b border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none bg-transparent" title="Click to rename">
+                                <button onclick="previewVideo('${id}')" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm transition">
+                                    Preview
+                                </button>
+                            </div>
+                            <p class="text-sm text-gray-500">
+                                <span class="font-medium">Duration:</span> ${durationStr}
+                            </p>
+                            <p id="status-${id}" class="text-sm text-green-600 font-medium"></p>
+                        </div>
+                        <div class="flex gap-2 flex-wrap">
+                            <button onclick="deleteVideo('${id}')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-1 rounded text-sm transition">
+                                Remove
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Segments list -->
+                    <div id="segments-${id}" class="mt-3 space-y-2">
+                        ${renderSegmentsHTML(id)}
+                    </div>
+                    <div class="mt-2">
+                        <button onclick="addSegment('${id}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                            + Add Segment
+                        </button>
+                    </div>
+                    <div id="progress-${id}" class="hidden mt-3">
+                        <div class="bg-gray-200 rounded-full h-2">
+                            <div id="progressBar-${id}" class="progress-bar bg-blue-600 h-2 rounded-full" style="width: 0%"></div>
+                        </div>
+                        <p id="progressText-${id}" class="text-xs text-gray-500 mt-1"></p>
+                    </div>
+                    <div id="error-${id}" class="hidden mt-3">
+                        <div class="bg-red-50 border border-red-200 rounded p-2">
+                            <div class="flex justify-between items-start gap-2">
+                                <textarea id="errorText-${id}" readonly class="flex-1 text-xs text-red-700 bg-transparent resize-none font-mono" rows="2"></textarea>
+                                <button onclick="copyError('${id}')" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded">Copy</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="download-${id}" class="hidden mt-3">
+                        <div id="downloadLinks-${id}" class="space-y-1"></div>
+                    </div>
+                `;
+            }
+
+            videoList.appendChild(card);
+
+            // Set duplicate status if needed
+            if (isDuplicate && !loading) {
+                const statusDiv = document.getElementById(`status-${id}`);
+                if (statusDiv) {
+                    statusDiv.textContent = 'DUPLICATE FILE';
+                    statusDiv.className = 'text-sm text-red-600 font-bold';
+                }
+            }
+        }
+
+        function removeVideoCard(id) {
+            const card = document.getElementById(`card-${id}`);
+            if (card) card.remove();
+        }
+
+        function updateTrimAllVisibility() {
+            trimAllContainer.classList.toggle('hidden', Object.keys(videos).length === 0);
+        }
+
+        function updateTimeDisplay(id) {
+            // Legacy function - kept for compatibility
+        }
+
+        function renderSegmentsHTML(id) {
+            const video = videos[id];
+            if (!video || !video.segments) return '';
+
+            // Get global round from first segment
+            const globalRnd = video.segments[0]?.round || '';
+
+            // Only show segments that have been used (have non-default values or labels)
+            return video.segments.map((seg, i) => {
+                const hasData = seg.start !== '0.000s' || seg.end !== video.duration_str || seg.team || seg.round;
+                if (!hasData && i > 0) return ''; // Skip empty segments except first
+
+                return `
+                <div class="flex flex-wrap items-center gap-2 bg-gray-50 p-2 rounded" data-segment-index="${i}">
+                    <span class="text-xs text-gray-500 font-medium w-6">#${i + 1}</span>
+                    <input type="text" value="${seg.team || ''}" placeholder="Team#"
+                        class="border rounded px-2 py-1 w-16 text-xs"
+                        onchange="updateSegment('${id}', ${i}, 'team', this.value)">
+                    ${i === 0 ? `<span class="text-xs text-purple-600 font-medium">R${globalRnd || '?'}</span>` : ''}
+                    <label class="text-xs text-green-600">S:</label>
+                    <input type="text" value="${seg.start}"
+                        class="border rounded px-2 py-1 w-20 text-xs font-mono segment-start"
+                        onchange="updateSegment('${id}', ${i}, 'start', this.value)">
+                    <label class="text-xs text-red-600">E:</label>
+                    <input type="text" value="${seg.end}"
+                        class="border rounded px-2 py-1 w-20 text-xs font-mono segment-end"
+                        onchange="updateSegment('${id}', ${i}, 'end', this.value)">
+                    <span class="text-xs text-blue-600 font-mono">${calculateSegmentDuration(seg)}</span>
+                    <button onclick="removeSegment('${id}', ${i})" class="text-red-500 hover:text-red-700 text-xs ml-auto">
+                        ✕
+                    </button>
+                </div>
+            `}).join('');
+        }
+
+        function calculateSegmentDuration(seg) {
+            const start = parseTimestamp(seg.start);
+            const end = parseTimestamp(seg.end);
+            const duration = Math.max(0, end - start);
+            return formatTime(duration);
+        }
+
+        function refreshSegmentsDisplay(id) {
+            const segmentsContainer = document.getElementById(`segments-${id}`);
+            if (segmentsContainer) {
+                segmentsContainer.innerHTML = renderSegmentsHTML(id);
+            }
+        }
+
+        function updateSegment(id, index, field, value) {
+            if (videos[id] && videos[id].segments && videos[id].segments[index]) {
+                videos[id].segments[index][field] = value;
+                refreshSegmentsDisplay(id);
+            }
+        }
+
+        function addSegment(id) {
+            if (!videos[id]) return;
+            if (!videos[id].segments) videos[id].segments = [];
+            if (videos[id].segments.length >= MAX_SEGMENTS) return; // Max 10 segments
+
+            const lastSeg = videos[id].segments[videos[id].segments.length - 1];
+            const newStart = lastSeg ? lastSeg.end : '0.000s';
+            const newEnd = videos[id].duration_str || newStart;
+
+            videos[id].segments.push({ start: newStart, end: newEnd, team: '', round: '' });
+            refreshSegmentsDisplay(id);
+        }
+
+        function removeSegment(id, index) {
+            if (videos[id] && videos[id].segments && videos[id].segments.length > 1) {
+                videos[id].segments.splice(index, 1);
+                refreshSegmentsDisplay(id);
+            }
+        }
+
+        function pollTranscodeStatus(id) {
+            const statusDiv = document.getElementById(`status-${id}`);
+            if (statusDiv) {
+                statusDiv.textContent = 'Transcoding for preview...';
+                statusDiv.className = 'text-sm text-purple-600 font-medium';
+            }
+
+            const checkStatus = async () => {
+                try {
+                    const res = await fetch(`/preview/status/${id}`);
+                    const data = await res.json();
+
+                    if (data.exists) {
+                        // Transcoding complete
+                        if (statusDiv) {
+                            statusDiv.textContent = 'Preview ready';
+                            statusDiv.className = 'text-sm text-green-600 font-medium';
+                        }
+                        if (videos[id]) {
+                            videos[id].preview_ready = true;
+                        }
+                    } else {
+                        // Still transcoding, check again in 3 seconds
+                        setTimeout(checkStatus, 3000);
+                    }
+                } catch (e) {
+                    // Retry on error
+                    setTimeout(checkStatus, 5000);
+                }
+            };
+
+            // Start polling after 2 seconds
+            setTimeout(checkStatus, 2000);
+        }
+
+        function showError(id, errorMessage, statusDiv, card, errorDiv, errorText) {
+            statusDiv.textContent = 'Error (see details below)';
+            statusDiv.className = 'text-sm text-red-600 font-medium';
+            card.className = 'bg-white rounded-lg p-4 shadow border-l-4 border-red-500';
+            errorDiv.classList.remove('hidden');
+            errorText.value = errorMessage;
+            // Auto-resize textarea
+            errorText.style.height = 'auto';
+            errorText.style.height = Math.min(errorText.scrollHeight, 100) + 'px';
+        }
+
+        function copyError(id) {
+            const errorText = document.getElementById(`errorText-${id}`);
+            if (errorText) {
+                navigator.clipboard.writeText(errorText.value).then(() => {
+                    // Brief visual feedback
+                    const btn = errorText.parentElement.querySelector('button');
+                    const originalText = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    setTimeout(() => btn.textContent = originalText, 1000);
+                }).catch(() => {
+                    // Fallback for older browsers
+                    errorText.select();
+                    document.execCommand('copy');
+                });
+            }
+        }
+
+        async function trimVideo(id) {
+            const progressDiv = document.getElementById(`progress-${id}`);
+            const progressBar = document.getElementById(`progressBar-${id}`);
+            const progressText = document.getElementById(`progressText-${id}`);
+            const downloadDiv = document.getElementById(`download-${id}`);
+            const downloadLinks = document.getElementById(`downloadLinks-${id}`);
+            const statusDiv = document.getElementById(`status-${id}`);
+            const card = document.getElementById(`card-${id}`);
+            const errorDiv = document.getElementById(`error-${id}`);
+            const errorText = document.getElementById(`errorText-${id}`);
+
+            // Get segments from video data
+            const segments = videos[id]?.segments || [];
+            if (segments.length === 0) {
+                showError(id, 'No segments defined', statusDiv, card, errorDiv, errorText);
+                return;
+            }
+
+            // Update status
+            statusDiv.textContent = `Trimming ${segments.length} segment${segments.length > 1 ? 's' : ''}...`;
+            statusDiv.className = 'text-sm text-blue-600 font-medium';
+            card.className = 'bg-white rounded-lg p-4 shadow border-l-4 border-blue-500';
+
+            progressDiv.classList.remove('hidden');
+            downloadDiv.classList.add('hidden');
+            progressBar.style.width = '10%';
+            if (progressText) progressText.textContent = 'Starting...';
+
+            try {
+                const nameInput = document.getElementById(`name-${id}`);
+                const response = await fetch('/trim', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: id,
+                        segments: segments,
+                        output_name: nameInput.value
+                    })
+                });
+
+                progressBar.style.width = '100%';
+                if (progressText) progressText.textContent = 'Processing complete';
+
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (parseError) {
+                    throw new Error('Server error: ' + (text || 'No response'));
+                }
+
+                if (response.ok) {
+                    setTimeout(() => {
+                        progressDiv.classList.add('hidden');
+                        errorDiv.classList.add('hidden');
+                        downloadDiv.classList.remove('hidden');
+
+                        // Calculate total trimmed duration
+                        let totalDuration = 0;
+                        segments.forEach(seg => {
+                            const startSecs = parseTimestamp(seg.start);
+                            const endSecs = parseTimestamp(seg.end);
+                            totalDuration += Math.max(0, endSecs - startSecs);
+                        });
+
+                        // Build download links for each segment with save to folder button
+                        if (data.outputs && data.outputs.length > 0) {
+                            downloadLinks.innerHTML = `
+                                <div class="flex flex-wrap items-center gap-2 mb-2">
+                                    <button onclick="saveToFolder('${id}')" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium inline-flex items-center">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                        Save to Folder
+                                    </button>
+                                    ${data.outputs.map(output => `
+                                        <a href="/download/${id}/${output.segment}" class="inline-flex items-center text-blue-600 hover:text-blue-800 text-sm">
+                                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                            </svg>
+                                            ${output.name}
+                                        </a>
+                                    `).join('')}
+                                </div>
+                            `;
+                        }
+
+                        statusDiv.textContent = `Complete - ${segments.length} clip${segments.length > 1 ? 's' : ''} (Total: ${formatTime(totalDuration)})`;
+                        statusDiv.className = 'text-sm text-green-600 font-medium';
+                        card.className = 'bg-green-100 rounded-lg p-4 shadow border-l-4 border-green-500';
+                    }, 500);
+                } else {
+                    progressDiv.classList.add('hidden');
+                    showError(id, data.error, statusDiv, card, errorDiv, errorText);
+                }
+            } catch (error) {
+                progressDiv.classList.add('hidden');
+                showError(id, error.message, statusDiv, card, errorDiv, errorText);
+            }
+        }
+
+        function missedEntry(id) {
+            const statusDiv = document.getElementById(`status-${id}`);
+            const card = document.getElementById(`card-${id}`);
+            const downloadDiv = document.getElementById(`download-${id}`);
+
+            // Update status
+            statusDiv.textContent = 'Missed Entry - Duration: 0.000s';
+            statusDiv.className = 'text-sm text-yellow-600 font-medium';
+            card.className = 'bg-green-100 rounded-lg p-4 shadow border-l-4 border-green-500';
+
+            // Hide download
+            downloadDiv.classList.add('hidden');
+
+            // Store missed entry state
+            if (videos[id]) {
+                videos[id].missedEntry = true;
+                videos[id].trimmedDuration = 0;
+            }
+        }
+
+        function canopyDown(id) {
+            const statusDiv = document.getElementById(`status-${id}`);
+            const card = document.getElementById(`card-${id}`);
+            const downloadDiv = document.getElementById(`download-${id}`);
+
+            // Update status
+            statusDiv.textContent = 'Canopy Down - Duration: 0.000s';
+            statusDiv.className = 'text-sm text-purple-600 font-medium';
+            card.className = 'bg-green-100 rounded-lg p-4 shadow border-l-4 border-green-500';
+
+            // Hide download
+            downloadDiv.classList.add('hidden');
+
+            // Store canopy down state
+            if (videos[id]) {
+                videos[id].canopyDown = true;
+                videos[id].trimmedDuration = 0;
+            }
+        }
+
+        async function deleteVideo(id) {
+            try {
+                await fetch(`/delete/${id}`, { method: 'DELETE' });
+                delete videos[id];
+                removeVideoCard(id);
+                updateTrimAllVisibility();
+                // Hide container if no videos left
+                if (Object.keys(videos).length === 0) {
+                    videoListContainer.classList.add('hidden');
+                }
+            } catch (error) {
+                alert('Delete failed: ' + error.message);
+            }
+        }
+
+        // Store last used folder path
+        let lastSaveFolder = '';
+
+        async function saveToFolder(id) {
+            try {
+                // First, select a folder
+                const folderRes = await fetch('/select-folder', { method: 'POST' });
+                const folderData = await folderRes.json();
+
+                if (!folderData.success) {
+                    if (folderData.error !== 'No folder selected') {
+                        alert('Error selecting folder: ' + folderData.error);
+                    }
+                    return;
+                }
+
+                lastSaveFolder = folderData.path;
+
+                // Save files to the folder
+                const saveRes = await fetch('/save-to-folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, folder: folderData.path })
+                });
+
+                const saveData = await saveRes.json();
+
+                if (saveData.success) {
+                    const statusDiv = document.getElementById(`status-${id}`);
+                    statusDiv.textContent = `Saved ${saveData.files.length} file(s) to ${saveData.folder}`;
+                    statusDiv.className = 'text-sm text-green-600 font-medium';
+                } else {
+                    alert('Save failed: ' + saveData.error);
+                }
+            } catch (error) {
+                alert('Save failed: ' + error.message);
+            }
+        }
+
+        function exportCSV() {
+            const rows = [
+                ['Filename', 'Segment', 'Team', 'Round', 'Start', 'End', 'Duration', 'Status']
+            ];
+
+            for (const id of Object.keys(videos)) {
+                const video = videos[id];
+                const nameInput = document.getElementById(`name-${id}`);
+                const statusDiv = document.getElementById(`status-${id}`);
+
+                const filename = nameInput ? nameInput.value : video.filename;
+                const segments = video.segments || [{ start: '0.000s', end: video.duration_str || '0.000s', team: '', round: '' }];
+
+                if (video.missedEntry) {
+                    rows.push([filename, '1', '', '', '0.000s', '0.000s', '0.000s', 'Missed Entry']);
+                } else if (video.canopyDown) {
+                    rows.push([filename, '1', '', '', '0.000s', '0.000s', '0.000s', 'Canopy Down']);
+                } else if (video.flaggedForReview) {
+                    segments.forEach((seg, i) => {
+                        const hasData = seg.start !== '0.000s' || seg.end !== video.duration_str || seg.team || seg.round;
+                        if (!hasData && i > 0) return;
+                        const startSecs = parseTimestamp(seg.start);
+                        const endSecs = parseTimestamp(seg.end);
+                        const duration = endSecs > startSecs ? formatTime(endSecs - startSecs) + '*' : '0.000s';
+                        rows.push([filename, i + 1, seg.team || '', seg.round || '', seg.start, seg.end, duration, 'Flagged for Review']);
+                    });
+                } else if (statusDiv && (statusDiv.textContent.includes('Complete') || statusDiv.textContent.includes('saved'))) {
+                    segments.forEach((seg, i) => {
+                        const hasData = seg.start !== '0.000s' || seg.end !== video.duration_str || seg.team || seg.round;
+                        if (!hasData && i > 0) return;
+                        const startSecs = parseTimestamp(seg.start);
+                        const endSecs = parseTimestamp(seg.end);
+                        const duration = formatTime(endSecs - startSecs);
+                        rows.push([filename, i + 1, seg.team || '', seg.round || '', seg.start, seg.end, duration, '']);
+                    });
+                } else {
+                    const status = statusDiv ? statusDiv.textContent : 'Pending';
+                    segments.forEach((seg, i) => {
+                        const hasData = seg.start !== '0.000s' || seg.end !== video.duration_str || seg.team || seg.round;
+                        if (!hasData && i > 0) return;
+                        const startSecs = parseTimestamp(seg.start);
+                        const endSecs = parseTimestamp(seg.end);
+                        const duration = formatTime(endSecs - startSecs);
+                        rows.push([filename, i + 1, seg.team || '', seg.round || '', seg.start, seg.end, duration, status]);
+                    });
+                }
+            }
+
+            const csvContent = rows.map(row =>
+                row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+            ).join('\n');
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            const timestamp = new Date().toISOString().slice(0, 10);
+            link.setAttribute('download', `VideoChopper_${timestamp}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+
+        // Preview functionality
+        const previewModal = document.getElementById('previewModal');
+        const previewVideoEl = document.getElementById('previewVideo');
+        const previewFilename = document.getElementById('previewFilename');
+        const currentTimeDisplay = document.getElementById('currentTime');
+        let currentPreviewId = null;
+        let currentVideoUrl = null;
+
+        // Sync filename changes from preview to main card
+        previewFilename.addEventListener('input', () => {
+            if (currentPreviewId) {
+                const nameInput = document.getElementById(`name-${currentPreviewId}`);
+                if (nameInput) {
+                    nameInput.value = previewFilename.value;
+                }
+            }
+        });
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            const ms = Math.floor((seconds % 1) * 1000);
+            return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+        }
+
+        function parseTimestamp(timestamp) {
+            // Handle m:ss.mmm format
+            if (timestamp.includes(':')) {
+                const parts = timestamp.split(':');
+                const mins = parseInt(parts[0]) || 0;
+                const secs = parseFloat(parts[1]) || 0;
+                return mins * 60 + secs;
+            }
+            // Handle old ss.mmms format (backwards compatibility)
+            const clean = timestamp.replace('s', '');
+            return parseFloat(clean);
+        }
+
+        async function previewVideo(id) {
+            currentPreviewId = id;
+            const video = videos[id];
+            const nameInput = document.getElementById(`name-${id}`);
+            previewFilename.value = nameInput ? nameInput.value : video.filename;
+            document.getElementById('videoError').classList.add('hidden');
+
+            // Initialize segments if needed
+            if (!video.segments || video.segments.length === 0) {
+                video.segments = [{ start: '0.000s', end: video.duration_str || '0.000s', team: '', round: '' }];
+            }
+
+            // Reset to first segment
+            currentSegmentIndex = 0;
+
+            // Load global round from first segment (if exists)
+            const firstSeg = video.segments[0];
+            globalRound = firstSeg?.round || '';
+            document.getElementById('globalRoundInput').value = globalRound;
+
+            // Get video element
+            const previewVideoEl = document.getElementById('previewVideo');
+            previewVideoEl.pause();
+            previewVideoEl.currentTime = 0;
+
+            // Determine video URL
+            let videoUrl;
+            try {
+                const statusRes = await fetch(`/preview/status/${id}`);
+                const status = await statusRes.json();
+                videoUrl = (status.exists) ? `/preview/${id}` : `/video/${id}`;
+            } catch {
+                videoUrl = `/video/${id}`;
+            }
+
+            // Store URL for fallback
+            currentVideoUrl = videoUrl;
+
+            // Load video
+            previewVideoEl.src = videoUrl;
+            previewVideoEl.load();
+
+            // Show modal
+            previewModal.classList.add('active');
+
+            // Render segments in preview
+            renderPreviewSegments();
+
+            // Fetch duration
+            fetch(`/duration/${id}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.duration > 0) {
+                        videos[id].duration_str = data.duration_str;
+                        // Update first segment end if it was unset
+                        const segs = videos[id].segments;
+                        if (segs.length > 0 && (segs[0].end === '0.000s' || segs[0].end === '0s')) {
+                            segs[0].end = data.duration_str;
+                            renderPreviewSegments();
+                        }
+                        document.getElementById('videoDuration').textContent = data.duration_str;
+                    }
+                })
+                .catch(() => {});
+        }
+
+        function closePreview() {
+            previewModal.classList.remove('active');
+            previewVideoEl.pause();
+            previewVideoEl.src = '';
+            currentPreviewId = null;
+        }
+
+        function openVideoInNewTab() {
+            if (currentVideoUrl) {
+                window.open(currentVideoUrl, '_blank');
+            } else if (currentPreviewId) {
+                window.open(`/preview/${currentPreviewId}`, '_blank');
+            }
+        }
+
+        const previewSizes = {
+            sm: { width: '900px', height: '70vh' },
+            md: { width: '1200px', height: '80vh' },
+            lg: { width: '1500px', height: '88vh' },
+            xl: { width: '85vw', height: '85vh' }
+        };
+        let currentPreviewSize = 'lg';
+
+        function setPreviewSize(size) {
+            const container = document.getElementById('previewContainer');
+            const video = document.getElementById('previewVideo');
+            const config = previewSizes[size];
+
+            container.style.maxWidth = config.width;
+            video.style.maxHeight = config.height;
+            currentPreviewSize = size;
+
+            // Update button styles
+            document.querySelectorAll('.preview-size-btn').forEach(btn => {
+                if (btn.dataset.size === size) {
+                    btn.className = 'preview-size-btn px-2 py-0.5 text-xs rounded bg-blue-500 text-white';
+                } else {
+                    btn.className = 'preview-size-btn px-2 py-0.5 text-xs rounded bg-gray-200 hover:bg-gray-300';
+                }
+            });
+        }
+
+        function renderPreviewSegments() {
+            const container = document.getElementById('previewSegments');
+            if (!currentPreviewId || !videos[currentPreviewId]) {
+                container.innerHTML = '';
+                return;
+            }
+
+            const video = videos[currentPreviewId];
+            const segments = video.segments || [];
+
+            // Show selected number of segment slots
+            let html = '';
+            for (let i = 0; i < visibleSegments; i++) {
+                const seg = segments[i] || null;
+                const isActive = i === currentSegmentIndex;
+                const hasData = seg && (seg.start !== '0.000s' || seg.end !== video.duration_str);
+                const keyLabel = i === 9 ? '0' : String(i + 1);
+
+                html += `
+                <div class="segment-card p-2 rounded border ${isActive ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50'} ${hasData ? 'ring-1 ring-green-300' : ''}" onclick="selectSegment(${i})">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs font-bold ${isActive ? 'text-blue-600' : 'text-gray-500'}">#${i + 1} [${keyLabel}]</span>
+                        <span class="text-xs font-mono ${hasData ? 'text-green-600' : 'text-gray-400'}">${seg ? calculateSegmentDuration(seg) : '--'}</span>
+                    </div>
+                    <div class="flex gap-1 mb-1">
+                        <input type="text" placeholder="Team#" value="${seg?.team || ''}"
+                            class="flex-1 px-1 py-0.5 text-xs border rounded focus:outline-none focus:border-blue-400"
+                            onclick="event.stopPropagation()" onchange="updateSegmentLabel(${i}, 'team', this.value)">
+                    </div>
+                    <div class="flex gap-1 mb-1">
+                        <button onclick="event.stopPropagation(); setStartForSegment(${i})"
+                            class="flex-1 bg-green-500 hover:bg-green-600 text-white px-1 py-0.5 rounded text-xs font-medium">
+                            Start
+                        </button>
+                        <button onclick="event.stopPropagation(); setEndForSegment(${i})"
+                            class="flex-1 bg-red-500 hover:bg-red-600 text-white px-1 py-0.5 rounded text-xs font-medium">
+                            End
+                        </button>
+                    </div>
+                    <div class="flex justify-between text-xs font-mono">
+                        <span class="text-green-600 cursor-pointer hover:underline" onclick="event.stopPropagation(); jumpToSegmentStart(${i})">${seg?.start || '--'}</span>
+                        <span class="text-red-600 cursor-pointer hover:underline" onclick="event.stopPropagation(); jumpToSegmentEnd(${i})">${seg?.end || '--'}</span>
+                    </div>
+                </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function updateSegmentLabel(index, field, value) {
+            if (!currentPreviewId || !videos[currentPreviewId]) return;
+            ensureSegmentExists(index);
+            videos[currentPreviewId].segments[index][field] = value;
+            refreshSegmentsDisplay(currentPreviewId);
+        }
+
+        function ensureSegmentExists(index) {
+            if (!currentPreviewId || !videos[currentPreviewId]) return;
+            const video = videos[currentPreviewId];
+            if (!video.segments) video.segments = [];
+            while (video.segments.length <= index) {
+                video.segments.push({
+                    start: '0.000s',
+                    end: video.duration_str || '0.000s',
+                    team: '',
+                    round: ''
+                });
+            }
+        }
+
+        function setStartForSegment(index) {
+            if (!currentPreviewId || !videos[currentPreviewId]) return;
+            ensureSegmentExists(index);
+            const startTime = previewVideoEl.currentTime;
+            const endTime = startTime + segmentDuration;
+            const video = videos[currentPreviewId];
+
+            video.segments[index].start = formatTime(startTime);
+            // Auto-set end time based on segment duration, capped at video duration
+            const maxDuration = previewVideoEl.duration || parseTimestamp(video.duration_str) || 9999;
+            const cappedEndTime = Math.min(endTime, maxDuration);
+            video.segments[index].end = formatTime(cappedEndTime);
+
+            currentSegmentIndex = index;
+            renderPreviewSegments();
+            refreshSegmentsDisplay(currentPreviewId);
+            playBeep(880, 0.1);
+
+            // Jump to end time for confirmation and continue playing
+            previewVideoEl.currentTime = cappedEndTime;
+            previewVideoEl.play().catch(() => {});
+        }
+
+        function setEndForSegment(index) {
+            if (!currentPreviewId || !videos[currentPreviewId]) return;
+            ensureSegmentExists(index);
+            const time = formatTime(previewVideoEl.currentTime);
+            videos[currentPreviewId].segments[index].end = time;
+            currentSegmentIndex = index;
+            renderPreviewSegments();
+            refreshSegmentsDisplay(currentPreviewId);
+            playBeep(440, 0.15);
+        }
+
+        function jumpToSegmentStart(index) {
+            if (!currentPreviewId || !videos[currentPreviewId]) return;
+            const segments = videos[currentPreviewId].segments || [];
+            if (segments[index] && segments[index].start) {
+                previewVideoEl.currentTime = parseTimestamp(segments[index].start);
+                currentSegmentIndex = index;
+                renderPreviewSegments();
+            }
+        }
+
+        function jumpToSegmentEnd(index) {
+            if (!currentPreviewId || !videos[currentPreviewId]) return;
+            const segments = videos[currentPreviewId].segments || [];
+            if (segments[index] && segments[index].end) {
+                previewVideoEl.currentTime = parseTimestamp(segments[index].end);
+                currentSegmentIndex = index;
+                renderPreviewSegments();
+            }
+        }
+
+        function selectSegment(index) {
+            if (!currentPreviewId || !videos[currentPreviewId]) return;
+            if (index >= 0 && index < MAX_SEGMENTS) {
+                ensureSegmentExists(index);
+                currentSegmentIndex = index;
+                renderPreviewSegments();
+                playBeep(550, 0.05);
+            }
+        }
+
+        previewVideoEl.addEventListener('timeupdate', () => {
+            currentTimeDisplay.textContent = formatTime(previewVideoEl.currentTime);
+        });
+
+        // Prevent video element from capturing keys and remove focus on click
+        previewVideoEl.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+            }
+        });
+
+        // Remove focus from video immediately (so our keyboard shortcuts work)
+        previewVideoEl.addEventListener('click', () => {
+            setTimeout(() => previewVideoEl.blur(), 10);
+        });
+        previewVideoEl.addEventListener('focus', () => {
+            previewVideoEl.blur();
+        });
+
+        previewVideoEl.addEventListener('error', (e) => {
+            // Only show error if there's actually an error with the video
+            if (previewVideoEl.error && currentPreviewId) {
+                const errorDiv = document.getElementById('videoError');
+                errorDiv.classList.remove('hidden');
+
+                // Auto-poll for preview to be ready
+                autoLoadPreview(currentPreviewId);
+            }
+        });
+
+        async function autoLoadPreview(videoId) {
+            const errorDiv = document.getElementById('videoError');
+            const statusText = document.getElementById('previewStatusText');
+
+            const checkAndLoad = async () => {
+                if (currentPreviewId !== videoId) return; // User closed or switched video
+
+                try {
+                    const res = await fetch(`/preview/status/${videoId}`);
+                    const data = await res.json();
+
+                    if (data.exists) {
+                        // Preview is ready, load it
+                        statusText.innerHTML = '<span class="text-green-600">Preview ready, loading...</span>';
+                        previewVideoEl.src = `/preview/${videoId}`;
+                        previewVideoEl.load();
+
+                        previewVideoEl.oncanplay = () => {
+                            errorDiv.classList.add('hidden');
+                            previewVideoEl.play().catch(() => {});
+                        };
+                    } else {
+                        // Still transcoding, check again
+                        statusText.innerHTML = '<span class="inline-block animate-spin mr-1">⟳</span> Generating playable preview...';
+                        setTimeout(checkAndLoad, 2000);
+                    }
+                } catch {
+                    // Retry on error
+                    setTimeout(checkAndLoad, 3000);
+                }
+            };
+
+            checkAndLoad();
+        }
+
+        previewVideoEl.addEventListener('loadeddata', () => {
+            document.getElementById('videoError').classList.add('hidden');
+        });
+
+        previewVideoEl.addEventListener('canplay', () => {
+            document.getElementById('videoError').classList.add('hidden');
+        });
+
+        // Audio feedback for start/end buttons
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playBeep(frequency, duration = 0.1) {
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.frequency.value = frequency;
+            oscillator.type = 'sine';
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            oscillator.start(audioCtx.currentTime);
+            oscillator.stop(audioCtx.currentTime + duration);
+        }
+
+        function saveTimesAndClose() {
+            const idToTrim = currentPreviewId;
+            closePreview();
+            // Auto trim after closing
+            if (idToTrim) {
+                trimVideo(idToTrim);
+            }
+        }
+
+        function flagForReview(id) {
+            const statusDiv = document.getElementById(`status-${id}`);
+            const card = document.getElementById(`card-${id}`);
+            const startInput = document.getElementById(`start-${id}`);
+            const endInput = document.getElementById(`end-${id}`);
+
+            // Calculate duration if start/end are set
+            let durationText = '';
+            if (startInput && endInput) {
+                const startSecs = parseTimestamp(startInput.value);
+                const endSecs = parseTimestamp(endInput.value);
+                if (endSecs > startSecs) {
+                    const duration = formatTime(endSecs - startSecs);
+                    durationText = ` - Duration: ${duration}*`;
+                }
+            }
+
+            // Update status
+            statusDiv.textContent = `Flagged for Review${durationText}`;
+            statusDiv.className = 'text-sm text-orange-600 font-medium';
+            card.className = 'bg-green-100 rounded-lg p-4 shadow border-l-4 border-green-500';
+
+            // Store flagged state
+            if (videos[id]) {
+                videos[id].flaggedForReview = true;
+            }
+        }
+
+        // Keyboard shortcuts (capture phase to intercept before video element)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closePreview();
+                return;
+            }
+
+            // Only handle shortcuts when modal is open and not typing in an input
+            if (!previewModal.classList.contains('active')) return;
+            if (e.target.tagName === 'INPUT') return;
+
+            // Always handle space and arrows even when video is focused
+            if (e.target.tagName === 'VIDEO' && (e.key === ' ' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+            }
+
+            const FRAME_TIME = 1/30; // ~1 frame at 30fps
+
+            // Number keys 1-9 and 0 for segment selection
+            if (e.key >= '1' && e.key <= '9') {
+                e.preventDefault();
+                selectSegment(parseInt(e.key) - 1);
+                return;
+            }
+            if (e.key === '0') {
+                e.preventDefault();
+                selectSegment(9);
+                return;
+            }
+
+            switch(e.key) {
+                case 's':
+                case 'S':
+                    e.preventDefault();
+                    setStartForSegment(currentSegmentIndex);
+                    break;
+                case 'e':
+                case 'E':
+                    e.preventDefault();
+                    setEndForSegment(currentSegmentIndex);
+                    break;
+                case 't':
+                case 'T':
+                    e.preventDefault();
+                    saveTimesAndClose();
+                    break;
+                case ' ':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (previewVideoEl.paused || previewVideoEl.ended) {
+                        previewVideoEl.play().catch(() => {});
+                    } else {
+                        previewVideoEl.pause();
+                        previewVideoEl.blur();
+                    }
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    previewVideoEl.pause();
+                    previewVideoEl.blur();
+                    const newTimeLeft = Math.max(0, previewVideoEl.currentTime - FRAME_TIME);
+                    previewVideoEl.currentTime = newTimeLeft;
+                    currentTimeDisplay.textContent = formatTime(newTimeLeft);
+                    currentTimeDisplay.classList.add('text-yellow-600');
+                    setTimeout(() => currentTimeDisplay.classList.remove('text-yellow-600'), 150);
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    previewVideoEl.pause();
+                    previewVideoEl.blur();
+                    const maxTime = previewVideoEl.duration || 9999;
+                    const newTimeRight = Math.min(maxTime, previewVideoEl.currentTime + FRAME_TIME);
+                    previewVideoEl.currentTime = newTimeRight;
+                    currentTimeDisplay.textContent = formatTime(newTimeRight);
+                    currentTimeDisplay.classList.add('text-yellow-600');
+                    setTimeout(() => currentTimeDisplay.classList.remove('text-yellow-600'), 150);
+                    break;
+            }
+        }, true); // Use capture phase to intercept before video controls
+
+        // Close modal on backdrop click
+        previewModal.addEventListener('click', (e) => {
+            if (e.target === previewModal) closePreview();
+        });
+
+        // Register service worker for PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.log('Service Worker registration failed:', err));
+        }
+    </script>
+</body>
+</html>

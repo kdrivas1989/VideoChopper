@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+output/
+uploads/
+*.log
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.mts
+*TEMP_MPY*
+
+# PyInstaller
+build/
+dist/
+*.spec
