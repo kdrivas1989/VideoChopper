@@ -14,24 +14,26 @@ from botocore.config import Config
 
 app = Flask(__name__)
 
-# Backblaze B2 Configuration
-B2_KEY_ID = os.environ.get('B2_KEY_ID', '005fa76bc1604e40000000002')
-B2_APP_KEY = os.environ.get('B2_APP_KEY', 'K00537bYIqWSls9LstqUVs0PSgB/p+Q')
-B2_BUCKET = os.environ.get('B2_BUCKET', 'video-chopper')
-B2_ENDPOINT = 'https://s3.us-east-005.backblazeb2.com'
+# Cloudflare R2 Configuration
+R2_ACCOUNT_ID = os.environ.get('R2_ACCOUNT_ID', '6b0edf67deb0be9fccb54de226f1f408')
+R2_ACCESS_KEY = os.environ.get('R2_ACCESS_KEY', '4ec2c0d55d2cb1cf51dbd390904a8088')
+R2_SECRET_KEY = os.environ.get('R2_SECRET_KEY', 'b84740e1a7aee1cc7529aa9853694f20797f6d1de4ceb72c5c9b52099d213000')
+R2_BUCKET = os.environ.get('R2_BUCKET', 'video-chopper')
+R2_ENDPOINT = f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com'
 
-# Initialize B2 client (S3-compatible)
-b2_client = None
+# Initialize R2 client (S3-compatible)
+r2_client = None
 try:
-    b2_client = boto3.client(
+    r2_client = boto3.client(
         's3',
-        endpoint_url=B2_ENDPOINT,
-        aws_access_key_id=B2_KEY_ID,
-        aws_secret_access_key=B2_APP_KEY,
-        config=Config(signature_version='s3v4')
+        endpoint_url=R2_ENDPOINT,
+        aws_access_key_id=R2_ACCESS_KEY,
+        aws_secret_access_key=R2_SECRET_KEY,
+        config=Config(signature_version='s3v4'),
+        region_name='auto'
     )
 except Exception as e:
-    print(f"B2 client initialization failed: {e}")
+    print(f"R2 client initialization failed: {e}")
 
 # Use appropriate directory for file storage based on environment
 def get_app_data_dir():
@@ -609,7 +611,7 @@ def save_to_folder():
 @app.route('/b2/presign', methods=['POST'])
 def b2_presign():
     """Generate a presigned URL for direct upload to Backblaze B2."""
-    if not b2_client:
+    if not r2_client:
         return jsonify({'error': 'B2 not configured'}), 500
 
     data = request.json
@@ -620,10 +622,10 @@ def b2_presign():
     b2_key = f"uploads/{video_id}_{filename}"
 
     try:
-        presigned_url = b2_client.generate_presigned_url(
+        presigned_url = r2_client.generate_presigned_url(
             'put_object',
             Params={
-                'Bucket': B2_BUCKET,
+                'Bucket': R2_BUCKET,
                 'Key': b2_key,
                 'ContentType': content_type
             },
@@ -651,7 +653,7 @@ def b2_confirm():
         return jsonify({'error': 'Missing video_id or b2_key'}), 400
 
     # Store video reference (file stays in B2)
-    b2_url = f"{B2_ENDPOINT}/{B2_BUCKET}/{b2_key}"
+    b2_url = f"{R2_ENDPOINT}/{R2_BUCKET}/{b2_key}"
 
     videos[video_id] = {
         'id': video_id,
@@ -696,7 +698,7 @@ def b2_download(video_id):
     local_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{video_id}_{video['filename']}")
 
     try:
-        b2_client.download_file(B2_BUCKET, b2_key, local_path)
+        r2_client.download_file(R2_BUCKET, b2_key, local_path)
         video['filepath'] = local_path
         return jsonify({'filepath': local_path})
     except Exception as e:
