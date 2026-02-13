@@ -66,9 +66,11 @@ def build():
         '--hidden-import=imageio_ffmpeg',
         '--hidden-import=flask',
         '--hidden-import=werkzeug',
+        '--hidden-import=webview',
         '--collect-all=moviepy',
         '--collect-all=imageio',
         '--collect-all=imageio_ffmpeg',
+        '--collect-all=webview',
         '--copy-metadata=imageio',
         '--copy-metadata=imageio_ffmpeg',
         '--noconfirm',  # Replace output without asking

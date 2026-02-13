@@ -237,10 +237,13 @@ def trim_video():
             end_time = data.get('end')
             segments = [{'start': start_time, 'end': end_time}]
 
-        # Get base output name
-        custom_name = data.get('output_name', '').strip()
-        if not custom_name:
-            custom_name = Path(video['filename']).stem
+        # Get competition name for file naming
+        competition_name = data.get('competition_name', 'Competition').strip()
+        include_competition = data.get('include_competition', True)
+        # Sanitize competition name (remove special characters)
+        competition_name = ''.join(c for c in competition_name if c.isalnum() or c in ' _-').strip()
+        if not competition_name:
+            competition_name = 'Competition'
 
         # Ensure output directory exists
         os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
@@ -256,13 +259,17 @@ def trim_video():
                 if start >= end:
                     return jsonify({'error': f'Segment {i+1}: Start time must be before end time'}), 400
 
-                # Generate output name with segment number if multiple segments
-                if len(segments) > 1:
-                    output_name = f"{custom_name}_{i+1}.mp4"
+                # Generate output name based on checkbox setting
+                team_num = segment.get('team', '').strip() or f'Team{i+1}'
+                round_num = segment.get('round', '').strip() or '1'
+                if include_competition:
+                    # Format: Competition_Team#_Round#.mp4
+                    output_name = f"{competition_name}_{team_num}_{round_num}.mp4"
                 else:
-                    output_name = f"{custom_name}.mp4"
+                    # Format: Team#_Round#.mp4
+                    output_name = f"{team_num}_{round_num}.mp4"
 
-                output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{video_id}_{output_name}")
+                output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_name)
 
                 # Add 2 second buffer before and after (within video bounds)
                 buffer_seconds = 2
@@ -523,20 +530,44 @@ def delete_video(video_id):
 
 @app.route('/select-folder', methods=['POST'])
 def select_folder():
-    """Open folder picker dialog and return selected path."""
+    """Create and return the specified folder path (or default)."""
+    data = request.json or {}
+    folder_path = data.get('path', '').strip()
+
+    # Handle ~ for home directory
+    if folder_path.startswith('~'):
+        folder_path = str(Path.home()) + folder_path[1:]
+
+    # Use default if not specified
+    if not folder_path:
+        folder_path = str(Path.home() / 'Downloads' / 'VideoChopper')
+
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
-        root.attributes('-topmost', True)  # Bring dialog to front
-        folder_path = filedialog.askdirectory(title="Select Download Folder")
-        root.destroy()
-        if folder_path:
-            return jsonify({'success': True, 'path': folder_path})
-        return jsonify({'success': False, 'error': 'No folder selected'})
+        os.makedirs(folder_path, exist_ok=True)
+        return jsonify({'success': True, 'path': folder_path})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/open-folder', methods=['POST'])
+def open_folder():
+    """Open a folder in the system file manager."""
+    data = request.json or {}
+    folder_path = data.get('path', '').strip()
+
+    # Handle ~ for home directory
+    if folder_path.startswith('~'):
+        folder_path = str(Path.home()) + folder_path[1:]
+
+    if not folder_path:
+        folder_path = str(Path.home() / 'Downloads' / 'VideoChopper')
+
+    try:
+        os.makedirs(folder_path, exist_ok=True)
+        subprocess.Popen(['open', folder_path])
+        return jsonify({'success': True, 'path': folder_path})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/save-to-folder', methods=['POST'])

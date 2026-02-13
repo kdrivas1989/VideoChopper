@@ -6,7 +6,7 @@ import webbrowser
 import sys
 from main import app
 
-USE_BROWSER = '--browser' in sys.argv or True  # Default to browser for better video support
+USE_BROWSER = '--browser' in sys.argv  # Use native window by default
 
 def start_server():
     """Start Flask server."""

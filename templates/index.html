@@ -14,8 +14,6 @@
     <link rel="apple-touch-icon" href="/static/icon-192.png">
 
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js"></script>
-    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js"></script>
     <style>
         .dropzone {
             border: 2px dashed #cbd5e1;
@@ -46,6 +44,28 @@
     <div class="container mx-auto px-4 py-8 max-w-4xl">
         <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center">Video Chopper</h1>
 
+        <!-- Competition Name & Save Location -->
+        <div class="bg-white rounded-lg p-4 mb-6 shadow space-y-3">
+            <div class="flex items-center gap-3">
+                <input type="checkbox" id="includeCompetition" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    onchange="saveIncludeCompetitionPreference(this.checked)" checked>
+                <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Competition:</label>
+                <input type="text" id="competitionName" placeholder="e.g. Nationals2024"
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                    onchange="saveCompetitionPreference(this.value)">
+            </div>
+            <div class="flex items-center gap-3">
+                <label class="text-sm font-medium text-gray-700 whitespace-nowrap ml-7">Save to:</label>
+                <input type="text" id="saveFolderPath" placeholder="~/Downloads/VideoChopper"
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                    onchange="saveFolderPreference(this.value)">
+                <button onclick="openSaveFolder()" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded-lg text-sm">
+                    Open
+                </button>
+            </div>
+            <p id="filenamePreview" class="text-xs text-gray-400 ml-7">Files saved as: Competition_Team#_Round#</p>
+        </div>
+
         <!-- Upload Area -->
         <div id="dropzone" class="dropzone bg-white rounded-lg p-8 mb-6 text-center cursor-pointer">
             <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" stroke="currentColor" fill="none" viewBox="0 0 48 48">
@@ -74,77 +94,75 @@
 
     <!-- Video Preview Modal -->
     <div id="previewModal" class="modal">
-        <div id="previewContainer" class="bg-white rounded-lg p-3 w-full mx-2 transition-all duration-200" style="max-width: 1500px;">
-            <div class="flex justify-between items-center mb-2 gap-2">
-                <input type="text" id="previewFilename" class="flex-1 text-sm font-semibold text-gray-800 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
-                <div class="flex items-center gap-1">
-                    <span class="text-xs text-gray-400 mr-1">Size:</span>
-                    <button onclick="setPreviewSize('sm')" class="preview-size-btn px-2 py-0.5 text-xs rounded bg-gray-200 hover:bg-gray-300" data-size="sm">S</button>
-                    <button onclick="setPreviewSize('md')" class="preview-size-btn px-2 py-0.5 text-xs rounded bg-gray-200 hover:bg-gray-300" data-size="md">M</button>
-                    <button onclick="setPreviewSize('lg')" class="preview-size-btn px-2 py-0.5 text-xs rounded bg-blue-500 text-white" data-size="lg">L</button>
-                    <button onclick="setPreviewSize('xl')" class="preview-size-btn px-2 py-0.5 text-xs rounded bg-gray-200 hover:bg-gray-300" data-size="xl">XL</button>
+        <div id="previewContainer" class="bg-white rounded-lg p-3 mx-2 transition-all duration-200 flex gap-3" style="max-width: 95vw; max-height: 95vh;">
+            <!-- Left side: Video and controls -->
+            <div class="flex-1 flex flex-col min-w-0">
+                <div class="flex justify-between items-center mb-2 gap-2">
+                    <input type="text" id="previewFilename" class="flex-1 text-sm font-semibold text-gray-800 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
                     <button onclick="closePreview()" class="text-gray-500 hover:text-gray-700 text-xl ml-2">&times;</button>
                 </div>
-            </div>
-            <video id="previewVideo" class="w-full bg-black rounded" style="max-height: 88vh;" controls preload="auto" tabindex="-1">
-                Your browser does not support video playback.
-            </video>
-            <div id="videoError" class="hidden text-center text-xs mt-1 p-2 bg-orange-50 rounded">
-                <p id="previewStatusText" class="text-orange-600">
-                    <span class="inline-block animate-spin mr-1">⟳</span> Generating playable preview...
-                </p>
-                <button onclick="openVideoInNewTab()" class="mt-2 text-blue-600 hover:underline text-xs">
-                    Open in QuickTime instead
-                </button>
-            </div>
-            <div class="mt-2 space-y-2">
-                <!-- Current time, duration selector, and video duration -->
-                <div class="flex justify-center items-center gap-4 text-sm flex-wrap">
-                    <div><span class="text-gray-500">Current:</span> <span id="currentTime" class="font-mono font-semibold">0:00.000</span></div>
-                    <div class="flex items-center gap-2 bg-gray-100 px-3 py-1 rounded-lg">
-                        <span class="text-gray-500 text-xs">Round:</span>
-                        <input type="text" id="globalRoundInput" placeholder="#" class="w-12 px-2 py-1 rounded text-sm font-semibold border-0 bg-white text-center" onchange="setGlobalRound(this.value)">
-                    </div>
-                    <div class="flex items-center gap-2 bg-gray-100 px-3 py-1 rounded-lg">
-                        <span class="text-gray-500 text-xs">Duration:</span>
-                        <button id="duration45Btn" onclick="setSegmentDuration(45)" class="px-3 py-1 rounded text-sm font-semibold bg-blue-500 text-white">
-                            45s
-                        </button>
-                        <button id="duration60Btn" onclick="setSegmentDuration(60)" class="px-3 py-1 rounded text-sm font-semibold bg-gray-300 text-gray-700 hover:bg-gray-400">
-                            1m
-                        </button>
-                    </div>
-                    <div class="flex items-center gap-2 bg-gray-100 px-3 py-1 rounded-lg">
-                        <span class="text-gray-500 text-xs">Segments:</span>
-                        <select id="segmentCountSelect" onchange="setVisibleSegments(parseInt(this.value))" class="px-2 py-1 rounded text-sm font-semibold border-0 bg-white">
-                            <option value="1">1</option>
-                            <option value="2">2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="5">5</option>
-                            <option value="6">6</option>
-                            <option value="7">7</option>
-                            <option value="8">8</option>
-                            <option value="9">9</option>
-                            <option value="10" selected>10</option>
-                            <option value="11">11</option>
-                            <option value="12">12</option>
-                        </select>
-                    </div>
-                    <div><span class="text-gray-500">Total:</span> <span id="videoDuration" class="font-mono font-semibold text-gray-600">--</span></div>
-                </div>
-                <!-- 10 Segments Grid -->
-                <div id="previewSegments" class="grid grid-cols-2 md:grid-cols-5 gap-2 py-2 border-t border-b border-gray-200 max-h-64 overflow-y-auto">
-                    <!-- Segments will be rendered here -->
-                </div>
-                <!-- Bottom controls -->
-                <div class="flex flex-wrap gap-2 items-center justify-center">
-                    <button onclick="saveTimesAndClose()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded text-sm font-semibold">
-                        Save & Trim [T]
+                <video id="previewVideo" class="w-full bg-black rounded flex-1" style="max-height: 70vh;" controls preload="auto" tabindex="-1">
+                    Your browser does not support video playback.
+                </video>
+                <div id="videoError" class="hidden text-center text-xs mt-1 p-2 bg-orange-50 rounded">
+                    <p id="previewStatusText" class="text-orange-600">
+                        <span class="inline-block animate-spin mr-1">⟳</span> Generating playable preview...
+                    </p>
+                    <button onclick="openVideoInNewTab()" class="mt-2 text-blue-600 hover:underline text-xs">
+                        Open in QuickTime instead
                     </button>
                 </div>
-                <div class="text-center text-xs text-gray-400">
-                    Keys: 1-9,0=Seg 1-10, S=Start (auto-sets end), E=End, T=Save, Space=Play, ←/→=Frame
+                <!-- Controls below video -->
+                <div class="mt-2 space-y-2">
+                    <div class="flex justify-center items-center gap-4 text-sm flex-wrap">
+                        <div><span class="text-gray-500">Current:</span> <span id="currentTime" class="font-mono font-semibold">0:00.000</span></div>
+                        <div class="flex items-center gap-2 bg-gray-100 px-3 py-1 rounded-lg">
+                            <span class="text-gray-500 text-xs">Duration:</span>
+                            <button id="duration45Btn" onclick="setSegmentDuration(45)" class="px-3 py-1 rounded text-sm font-semibold bg-blue-500 text-white">
+                                45s
+                            </button>
+                            <button id="duration60Btn" onclick="setSegmentDuration(60)" class="px-3 py-1 rounded text-sm font-semibold bg-gray-300 text-gray-700 hover:bg-gray-400">
+                                1m
+                            </button>
+                        </div>
+                        <div><span class="text-gray-500">Total:</span> <span id="videoDuration" class="font-mono font-semibold text-gray-600">--</span></div>
+                    </div>
+                    <div class="flex flex-wrap gap-2 items-center justify-center">
+                        <button onclick="saveTimesAndClose()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded text-sm font-semibold">
+                            Save & Trim [T]
+                        </button>
+                    </div>
+                    <div class="text-center text-xs text-gray-400">
+                        Keys: 1-9,0=Seg 1-10, S=Start, E=End, T=Save, Space=Play, ←/→=5sec
+                    </div>
+                </div>
+            </div>
+            <!-- Right side: Segments sidebar -->
+            <div class="w-48 flex flex-col bg-gray-50 rounded-lg p-2 border border-gray-200">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold text-gray-600">Segments</span>
+                    <select id="segmentCountSelect" onchange="setVisibleSegments(parseInt(this.value))" class="px-1 py-0.5 rounded text-xs font-semibold border bg-white">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                        <option value="9">9</option>
+                        <option value="10" selected>10</option>
+                        <option value="11">11</option>
+                        <option value="12">12</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-1 mb-2">
+                    <span class="text-xs text-gray-500">Round:</span>
+                    <input type="text" id="globalRoundInput" placeholder="#" class="w-10 px-1 py-0.5 rounded text-xs font-semibold border bg-white text-center" onchange="setGlobalRound(this.value)">
+                </div>
+                <!-- Segments stacked vertically -->
+                <div id="previewSegments" class="flex flex-col gap-2 overflow-y-auto flex-1">
+                    <!-- Segments will be rendered here -->
                 </div>
             </div>
         </div>
@@ -165,6 +183,91 @@
         let segmentDuration = 45;
         // Global round number for all segments
         let globalRound = '';
+
+        // Save folder preference
+        function saveFolderPreference(path) {
+            localStorage.setItem('videoChopperSaveFolder', path);
+        }
+
+        function loadFolderPreference() {
+            const saved = localStorage.getItem('videoChopperSaveFolder');
+            const input = document.getElementById('saveFolderPath');
+            if (saved) {
+                input.value = saved;
+            } else {
+                // Set default
+                input.value = '~/Downloads/VideoChopper';
+            }
+        }
+
+        // Competition name preference
+        function saveCompetitionPreference(name) {
+            localStorage.setItem('videoChopperCompetition', name);
+            updateFilenamePreview();
+        }
+
+        function loadCompetitionPreference() {
+            const saved = localStorage.getItem('videoChopperCompetition');
+            const input = document.getElementById('competitionName');
+            if (saved) {
+                input.value = saved;
+            }
+        }
+
+        function getCompetitionName() {
+            const input = document.getElementById('competitionName');
+            return input.value.trim() || 'Competition';
+        }
+
+        // Include competition checkbox preference
+        function saveIncludeCompetitionPreference(checked) {
+            localStorage.setItem('videoChopperIncludeCompetition', checked ? 'true' : 'false');
+            updateFilenamePreview();
+        }
+
+        function loadIncludeCompetitionPreference() {
+            const saved = localStorage.getItem('videoChopperIncludeCompetition');
+            const checkbox = document.getElementById('includeCompetition');
+            // Default to checked if not set
+            checkbox.checked = saved !== 'false';
+        }
+
+        function getIncludeCompetition() {
+            const checkbox = document.getElementById('includeCompetition');
+            return checkbox.checked;
+        }
+
+        function updateFilenamePreview() {
+            const preview = document.getElementById('filenamePreview');
+            const compName = getCompetitionName();
+            if (getIncludeCompetition()) {
+                preview.textContent = `Files saved as: ${compName}_Team#_Round#`;
+            } else {
+                preview.textContent = 'Files saved as: Team#_Round#';
+            }
+        }
+
+        function getSaveFolder() {
+            const input = document.getElementById('saveFolderPath');
+            return input.value || '~/Downloads/VideoChopper';
+        }
+
+        function openSaveFolder() {
+            const folder = getSaveFolder();
+            fetch('/open-folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: folder })
+            });
+        }
+
+        // Load preferences on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadFolderPreference();
+            loadCompetitionPreference();
+            loadIncludeCompetitionPreference();
+            updateFilenamePreview();
+        });
 
         function setSegmentDuration(duration) {
             segmentDuration = duration;
@@ -216,115 +319,11 @@
             handleFileSelect(e.dataTransfer.files);
         });
 
-        const MAX_FILE_SIZE_MB = 500; // Max file size in MB
-        let ffmpeg = null;
-        let ffmpegLoaded = false;
-
-        async function loadFFmpeg() {
-            if (ffmpegLoaded) return true;
-            try {
-                const { FFmpeg } = FFmpegWASM;
-                ffmpeg = new FFmpeg();
-                ffmpeg.on('progress', ({ progress }) => {
-                    const percent = Math.round(progress * 100);
-                    updateCompressProgress(percent);
-                });
-                await ffmpeg.load({
-                    coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-                });
-                ffmpegLoaded = true;
-                return true;
-            } catch (e) {
-                console.error('FFmpeg load failed:', e);
-                return false;
-            }
-        }
-
-        let currentCompressId = null;
-        function updateCompressProgress(percent) {
-            if (currentCompressId) {
-                updateUploadProgress(currentCompressId, percent, `Compressing... ${percent}%`);
-            }
-        }
-
-        async function compressVideo(file) {
-            const { fetchFile } = FFmpegUtil;
-            const inputName = 'input' + file.name.substring(file.name.lastIndexOf('.'));
-            const outputName = 'compressed.mp4';
-
-            await ffmpeg.writeFile(inputName, await fetchFile(file));
-
-            // Compress to 720p, lower bitrate
-            await ffmpeg.exec([
-                '-i', inputName,
-                '-vf', 'scale=-2:720',
-                '-c:v', 'libx264',
-                '-preset', 'fast',
-                '-crf', '28',
-                '-c:a', 'aac',
-                '-b:a', '128k',
-                outputName
-            ]);
-
-            const data = await ffmpeg.readFile(outputName);
-            await ffmpeg.deleteFile(inputName);
-            await ffmpeg.deleteFile(outputName);
-
-            return new File([data.buffer], file.name.replace(/\.[^/.]+$/, '_compressed.mp4'), { type: 'video/mp4' });
-        }
-
         async function handleFileSelect(files) {
-            console.log('Files selected:', files.length);
             for (const file of files) {
-                const fileSizeMB = file.size / (1024 * 1024);
-                console.log('File:', file.name, 'Size:', fileSizeMB.toFixed(1), 'MB');
-
-                if (fileSizeMB > MAX_FILE_SIZE_MB) {
-                    const shouldCompress = confirm(`File "${file.name}" is ${fileSizeMB.toFixed(0)} MB.\n\nCompress before uploading?\n\n(This may take a few minutes)`);
-                    if (shouldCompress) {
-                        await uploadFileWithCompression(file);
-                    }
-                    continue;
-                }
-
                 uploadFile(file);
             }
             fileInput.value = ''; // Reset so same file can be selected again
-        }
-
-        async function uploadFileWithCompression(file) {
-            const tempId = 'temp-' + Date.now();
-            currentCompressId = tempId;
-            addVideoCard(tempId, file.name, 0, '00:00:00', true);
-            updateUploadProgress(tempId, 0, 'Loading compressor...');
-
-            try {
-                const loaded = await loadFFmpeg();
-                if (!loaded) {
-                    alert('Failed to load video compressor. Uploading original file.');
-                    currentCompressId = null;
-                    removeVideoCard(tempId);
-                    uploadFile(file);
-                    return;
-                }
-
-                updateUploadProgress(tempId, 0, 'Compressing...');
-                const compressedFile = await compressVideo(file);
-                currentCompressId = null;
-
-                const originalMB = (file.size / (1024 * 1024)).toFixed(1);
-                const compressedMB = (compressedFile.size / (1024 * 1024)).toFixed(1);
-                console.log(`Compressed: ${originalMB} MB → ${compressedMB} MB`);
-
-                removeVideoCard(tempId);
-                uploadFile(compressedFile);
-            } catch (e) {
-                console.error('Compression failed:', e);
-                alert('Compression failed: ' + e.message + '\n\nUploading original file.');
-                currentCompressId = null;
-                removeVideoCard(tempId);
-                uploadFile(file);
-            }
         }
 
         async function uploadFile(file) {
@@ -752,7 +751,9 @@
                     body: JSON.stringify({
                         id: id,
                         segments: segments,
-                        output_name: nameInput.value
+                        output_name: nameInput.value,
+                        competition_name: getCompetitionName(),
+                        include_competition: getIncludeCompetition()
                     })
                 });
 
@@ -817,46 +818,6 @@
             }
         }
 
-        function missedEntry(id) {
-            const statusDiv = document.getElementById(`status-${id}`);
-            const card = document.getElementById(`card-${id}`);
-            const downloadDiv = document.getElementById(`download-${id}`);
-
-            // Update status
-            statusDiv.textContent = 'Missed Entry - Duration: 0.000s';
-            statusDiv.className = 'text-sm text-yellow-600 font-medium';
-            card.className = 'bg-green-100 rounded-lg p-4 shadow border-l-4 border-green-500';
-
-            // Hide download
-            downloadDiv.classList.add('hidden');
-
-            // Store missed entry state
-            if (videos[id]) {
-                videos[id].missedEntry = true;
-                videos[id].trimmedDuration = 0;
-            }
-        }
-
-        function canopyDown(id) {
-            const statusDiv = document.getElementById(`status-${id}`);
-            const card = document.getElementById(`card-${id}`);
-            const downloadDiv = document.getElementById(`download-${id}`);
-
-            // Update status
-            statusDiv.textContent = 'Canopy Down - Duration: 0.000s';
-            statusDiv.className = 'text-sm text-purple-600 font-medium';
-            card.className = 'bg-green-100 rounded-lg p-4 shadow border-l-4 border-green-500';
-
-            // Hide download
-            downloadDiv.classList.add('hidden');
-
-            // Store canopy down state
-            if (videos[id]) {
-                videos[id].canopyDown = true;
-                videos[id].trimmedDuration = 0;
-            }
-        }
-
         async function deleteVideo(id) {
             try {
                 await fetch(`/delete/${id}`, { method: 'DELETE' });
@@ -877,14 +838,19 @@
 
         async function saveToFolder(id) {
             try {
-                // First, select a folder
-                const folderRes = await fetch('/select-folder', { method: 'POST' });
+                // Get the folder path from the input field
+                const folderPath = getSaveFolder();
+
+                // Ensure the folder exists
+                const folderRes = await fetch('/select-folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: folderPath })
+                });
                 const folderData = await folderRes.json();
 
                 if (!folderData.success) {
-                    if (folderData.error !== 'No folder selected') {
-                        alert('Error selecting folder: ' + folderData.error);
-                    }
+                    alert('Error with folder: ' + folderData.error);
                     return;
                 }
 
@@ -924,20 +890,7 @@
                 const filename = nameInput ? nameInput.value : video.filename;
                 const segments = video.segments || [{ start: '0.000s', end: video.duration_str || '0.000s', team: '', round: '' }];
 
-                if (video.missedEntry) {
-                    rows.push([filename, '1', '', '', '0.000s', '0.000s', '0.000s', 'Missed Entry']);
-                } else if (video.canopyDown) {
-                    rows.push([filename, '1', '', '', '0.000s', '0.000s', '0.000s', 'Canopy Down']);
-                } else if (video.flaggedForReview) {
-                    segments.forEach((seg, i) => {
-                        const hasData = seg.start !== '0.000s' || seg.end !== video.duration_str || seg.team || seg.round;
-                        if (!hasData && i > 0) return;
-                        const startSecs = parseTimestamp(seg.start);
-                        const endSecs = parseTimestamp(seg.end);
-                        const duration = endSecs > startSecs ? formatTime(endSecs - startSecs) + '*' : '0.000s';
-                        rows.push([filename, i + 1, seg.team || '', seg.round || '', seg.start, seg.end, duration, 'Flagged for Review']);
-                    });
-                } else if (statusDiv && (statusDiv.textContent.includes('Complete') || statusDiv.textContent.includes('saved'))) {
+                if (statusDiv && (statusDiv.textContent.includes('Complete') || statusDiv.textContent.includes('saved'))) {
                     segments.forEach((seg, i) => {
                         const hasData = seg.start !== '0.000s' || seg.end !== video.duration_str || seg.team || seg.round;
                         if (!hasData && i > 0) return;
@@ -1355,34 +1308,6 @@
             }
         }
 
-        function flagForReview(id) {
-            const statusDiv = document.getElementById(`status-${id}`);
-            const card = document.getElementById(`card-${id}`);
-            const startInput = document.getElementById(`start-${id}`);
-            const endInput = document.getElementById(`end-${id}`);
-
-            // Calculate duration if start/end are set
-            let durationText = '';
-            if (startInput && endInput) {
-                const startSecs = parseTimestamp(startInput.value);
-                const endSecs = parseTimestamp(endInput.value);
-                if (endSecs > startSecs) {
-                    const duration = formatTime(endSecs - startSecs);
-                    durationText = ` - Duration: ${duration}*`;
-                }
-            }
-
-            // Update status
-            statusDiv.textContent = `Flagged for Review${durationText}`;
-            statusDiv.className = 'text-sm text-orange-600 font-medium';
-            card.className = 'bg-green-100 rounded-lg p-4 shadow border-l-4 border-green-500';
-
-            // Store flagged state
-            if (videos[id]) {
-                videos[id].flaggedForReview = true;
-            }
-        }
-
         // Keyboard shortcuts (capture phase to intercept before video element)
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -1444,9 +1369,8 @@
                 case 'ArrowLeft':
                     e.preventDefault();
                     e.stopPropagation();
-                    previewVideoEl.pause();
                     previewVideoEl.blur();
-                    const newTimeLeft = Math.max(0, previewVideoEl.currentTime - FRAME_TIME);
+                    const newTimeLeft = Math.max(0, previewVideoEl.currentTime - 5);
                     previewVideoEl.currentTime = newTimeLeft;
                     currentTimeDisplay.textContent = formatTime(newTimeLeft);
                     currentTimeDisplay.classList.add('text-yellow-600');
@@ -1455,10 +1379,9 @@
                 case 'ArrowRight':
                     e.preventDefault();
                     e.stopPropagation();
-                    previewVideoEl.pause();
                     previewVideoEl.blur();
                     const maxTime = previewVideoEl.duration || 9999;
-                    const newTimeRight = Math.min(maxTime, previewVideoEl.currentTime + FRAME_TIME);
+                    const newTimeRight = Math.min(maxTime, previewVideoEl.currentTime + 5);
                     previewVideoEl.currentTime = newTimeRight;
                     currentTimeDisplay.textContent = formatTime(newTimeRight);
                     currentTimeDisplay.classList.add('text-yellow-600');
