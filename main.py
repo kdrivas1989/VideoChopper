@@ -163,23 +163,15 @@ def upload_file():
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"{video_id}_{filename}")
             file.save(filepath)
 
-            # Skip duration reading on upload - it's slow for large files
-            # Duration will be read when previewing
-            duration = 0
-
-            # Check if browser can play this codec
-            playable = is_browser_playable(filepath)
-
-            # Get duration on upload
-            duration = get_video_duration(filepath)
-
+            # Skip all processing on upload - do it lazily when previewing
+            # This prevents timeout on large file uploads
             videos[video_id] = {
                 'id': video_id,
                 'filename': filename,
                 'filepath': filepath,
-                'duration': duration,
-                'duration_str': seconds_to_timestamp(duration),
-                'browser_playable': playable,
+                'duration': 0,
+                'duration_str': '0.000s',
+                'browser_playable': True,  # Assume playable, check later
                 'preview_ready': False
             }
 
@@ -195,11 +187,11 @@ def upload_file():
             return jsonify({
                 'id': video_id,
                 'filename': filename,
-                'duration': duration,
-                'duration_str': seconds_to_timestamp(duration),
+                'duration': 0,
+                'duration_str': '0.000s',
                 'start_time': '0.000s',
-                'end_time': seconds_to_timestamp(duration),
-                'browser_playable': playable
+                'end_time': '0.000s',
+                'browser_playable': True
             })
 
         return jsonify({'error': 'Invalid file type'}), 400
