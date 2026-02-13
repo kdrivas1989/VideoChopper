@@ -175,15 +175,7 @@ def upload_file():
                 'preview_ready': False
             }
 
-            # Auto-transcode in background if not browser-playable
-            if not playable:
-                thread = threading.Thread(
-                    target=transcode_for_browser,
-                    args=(video_id, filepath)
-                )
-                thread.daemon = True
-                thread.start()
-
+            # Transcoding will happen when user opens preview
             return jsonify({
                 'id': video_id,
                 'filename': filename,
