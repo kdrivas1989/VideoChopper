@@ -18,7 +18,7 @@ app = Flask(__name__)
 B2_KEY_ID = os.environ.get('B2_KEY_ID', '005fa76bc1604e40000000002')
 B2_APP_KEY = os.environ.get('B2_APP_KEY', 'K00537bYIqWSls9LstqUVs0PSgB/p+Q')
 B2_BUCKET = os.environ.get('B2_BUCKET', 'video-chopper')
-B2_ENDPOINT = 'https://s3.us-west-004.backblazeb2.com'
+B2_ENDPOINT = 'https://s3.us-east-005.backblazeb2.com'
 
 # Initialize B2 client (S3-compatible)
 b2_client = None
