@@ -1,0 +1,183 @@
+================================================================================
+                    VIDEO CHOPPER - WINDOWS INSTALLATION GUIDE
+================================================================================
+
+Video Chopper is a desktop application for trimming video files into segments
+with custom naming. Follow these steps to get started.
+
+================================================================================
+                              STEP 1: INSTALL PYTHON
+================================================================================
+
+1. Open your web browser and go to:
+   https://www.python.org/downloads/
+
+2. Click the yellow "Download Python 3.x.x" button
+
+3. Run the downloaded installer (python-3.x.x-amd64.exe)
+
+4. IMPORTANT: Check the box that says "Add Python to PATH" at the bottom
+   of the installer window
+
+5. Click "Install Now"
+
+6. Wait for installation to complete and click "Close"
+
+To verify Python is installed:
+   - Press Windows + R, type "cmd", press Enter
+   - Type: python --version
+   - You should see something like "Python 3.11.5"
+
+================================================================================
+                              STEP 2: INSTALL FFMPEG
+================================================================================
+
+FFmpeg is required for video processing. Choose ONE of these methods:
+
+METHOD A: Using winget (Windows 10/11)
+--------------------------------------
+1. Press Windows + R, type "cmd", press Enter
+2. Type: winget install ffmpeg
+3. Press Enter and wait for installation
+
+METHOD B: Using Chocolatey
+--------------------------
+1. If you have Chocolatey installed, open Command Prompt as Administrator
+2. Type: choco install ffmpeg
+3. Press Enter and wait for installation
+
+METHOD C: Manual Download
+-------------------------
+1. Go to: https://www.gyan.dev/ffmpeg/builds/
+2. Download "ffmpeg-release-essentials.zip"
+3. Extract the zip file to C:\ffmpeg
+4. Add FFmpeg to your PATH:
+   a. Press Windows + R, type "sysdm.cpl", press Enter
+   b. Click "Advanced" tab
+   c. Click "Environment Variables"
+   d. Under "System variables", find "Path" and click "Edit"
+   e. Click "New" and add: C:\ffmpeg\bin
+   f. Click "OK" on all windows
+
+To verify FFmpeg is installed:
+   - Open a NEW Command Prompt window
+   - Type: ffmpeg -version
+   - You should see version information
+
+================================================================================
+                           STEP 3: EXTRACT VIDEO CHOPPER
+================================================================================
+
+1. Locate the VideoChopper-Windows.zip file you downloaded
+
+2. Right-click on the zip file
+
+3. Select "Extract All..."
+
+4. Choose where to extract (e.g., C:\VideoChopper or your Desktop)
+
+5. Click "Extract"
+
+================================================================================
+                              STEP 4: RUN THE APP
+================================================================================
+
+OPTION A: Native Window (Recommended)
+-------------------------------------
+1. Open the extracted VideoChopper folder
+2. Double-click "run.bat"
+3. The first time you run it:
+   - A virtual environment will be created
+   - Dependencies will be installed (this may take 1-2 minutes)
+   - The app window will open
+
+OPTION B: Browser Mode
+----------------------
+1. Open the extracted VideoChopper folder
+2. Double-click "run_browser.bat"
+3. Your default web browser will open with the app
+
+================================================================================
+                               USING THE APP
+================================================================================
+
+1. UPLOAD VIDEOS
+   - Drag and drop video files onto the upload area, OR
+   - Click "Choose Files" to browse for videos
+   - Supported formats: MP4, AVI, MOV, MKV, WMV, FLV, WebM, MTS
+
+2. SET COMPETITION NAME (Optional)
+   - Enter your competition name (e.g., "Nationals2024")
+   - Check/uncheck the checkbox to include it in filenames
+   - Checked: "Nationals2024_Team501_Round1.mp4"
+   - Unchecked: "Team501_Round1.mp4"
+
+3. SET SAVE FOLDER
+   - Default: ~/Downloads/VideoChopper
+   - Change it to any folder you prefer
+   - Click "Open" to view the folder
+
+4. PREVIEW AND TRIM
+   - Click "Preview" on any video
+   - Use keyboard shortcuts to mark segments:
+     * 1-9, 0 = Select segment 1-10
+     * S = Set start time
+     * E = Set end time
+     * Space = Play/Pause
+     * Arrow keys = Skip 5 seconds
+     * T = Save & Trim
+   - Enter team numbers for each segment
+
+5. SAVE YOUR CLIPS
+   - After trimming, click "Save to Folder"
+   - Files are saved with your custom naming format
+
+================================================================================
+                              TROUBLESHOOTING
+================================================================================
+
+PROBLEM: "Python is not installed"
+SOLUTION: Install Python from python.org and make sure to check
+          "Add Python to PATH" during installation.
+
+PROBLEM: "ffmpeg not found" or video processing fails
+SOLUTION: Make sure FFmpeg is installed and in your system PATH.
+          Open a new Command Prompt and type "ffmpeg -version" to verify.
+
+PROBLEM: Video won't play in preview
+SOLUTION: Some codecs (like HEVC/H.265) need transcoding. Wait for the
+          "Preview ready" status. This happens automatically in the background.
+
+PROBLEM: App window is blank
+SOLUTION: Try running "run_browser.bat" instead to use your web browser.
+
+PROBLEM: Dependencies fail to install
+SOLUTION:
+   1. Open Command Prompt in the VideoChopper folder
+   2. Type: pip install --upgrade pip
+   3. Type: pip install -r requirements.txt
+   4. Try running the app again
+
+================================================================================
+                               DATA LOCATIONS
+================================================================================
+
+Your data is stored in these locations:
+
+Uploads:    %LOCALAPPDATA%\VideoChopper\uploads
+Output:     %LOCALAPPDATA%\VideoChopper\output
+Previews:   %LOCALAPPDATA%\VideoChopper\previews
+
+To access %LOCALAPPDATA%:
+   - Press Windows + R
+   - Type: %LOCALAPPDATA%
+   - Press Enter
+
+================================================================================
+                                  SUPPORT
+================================================================================
+
+For issues or questions:
+https://github.com/kdrivas1989/VideoChopper/issues
+
+================================================================================

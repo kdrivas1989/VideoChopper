@@ -1,0 +1,25 @@
+================================================================================
+                         VIDEO CHOPPER - QUICK START
+================================================================================
+
+REQUIREMENTS:
+  - Python 3.9+ (https://python.org) - CHECK "Add to PATH" when installing!
+  - FFmpeg (run: winget install ffmpeg)
+
+TO RUN:
+  1. Double-click "run.bat"
+  2. Wait for setup (first time only)
+  3. Start chopping videos!
+
+KEYBOARD SHORTCUTS (in Preview):
+  1-9, 0  = Select segment 1-10
+  S       = Set START time
+  E       = Set END time
+  T       = Save & TRIM
+  Space   = Play/Pause
+  ← / →   = Skip 5 seconds
+
+NEED HELP?
+  See INSTALL_GUIDE.txt for detailed instructions.
+
+================================================================================
