@@ -17,5 +17,6 @@ COPY static/ static/
 # Create directories
 RUN mkdir -p /tmp/video-chopper/uploads /tmp/video-chopper/output /tmp/video-chopper/previews
 
-# Use PORT env variable
-CMD sh -c "gunicorn main:app --bind 0.0.0.0:\${PORT:-8080} --timeout 0 --workers 2"
+# Railway sets PORT env variable
+ENV PORT=8080
+CMD ["sh", "-c", "gunicorn main:app --bind 0.0.0.0:$PORT --timeout 0 --workers 2"]
