@@ -414,10 +414,17 @@ def serve_video(video_id):
 
 
 def find_video_file(video_id):
-    """Find video file by ID, even if not in videos dictionary."""
+    """Find video file by ID, even if not in videos dictionary. Downloads from R2 if needed."""
     # First check if in dictionary
     if video_id in videos:
-        return videos[video_id]['filepath']
+        video = videos[video_id]
+        filepath = video.get('filepath')
+
+        # If no local file but has R2 key, download it
+        if (not filepath or not os.path.exists(filepath)) and video.get('b2_key'):
+            filepath = download_from_r2(video_id)
+
+        return filepath
 
     # Otherwise scan uploads folder for matching file
     upload_folder = app.config['UPLOAD_FOLDER']
@@ -426,6 +433,34 @@ def find_video_file(video_id):
             if filename.startswith(video_id + '_'):
                 return os.path.join(upload_folder, filename)
     return None
+
+
+def download_from_r2(video_id):
+    """Download video from R2 to local storage."""
+    if video_id not in videos:
+        return None
+
+    video = videos[video_id]
+    b2_key = video.get('b2_key')
+    if not b2_key or not r2_client:
+        return None
+
+    local_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{video_id}_{video['filename']}")
+
+    # Check if already downloaded
+    if os.path.exists(local_path):
+        video['filepath'] = local_path
+        return local_path
+
+    try:
+        print(f"Downloading {b2_key} from R2...")
+        r2_client.download_file(R2_BUCKET, b2_key, local_path)
+        video['filepath'] = local_path
+        print(f"Downloaded to {local_path}")
+        return local_path
+    except Exception as e:
+        print(f"R2 download failed: {e}")
+        return None
 
 
 @app.route('/preview/<video_id>')

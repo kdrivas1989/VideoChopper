@@ -94,14 +94,14 @@
 
     <!-- Video Preview Modal -->
     <div id="previewModal" class="modal">
-        <div id="previewContainer" class="bg-white rounded-lg p-3 mx-2 transition-all duration-200 flex gap-3" style="max-width: 95vw; max-height: 95vh;">
+        <div id="previewContainer" class="bg-white rounded-lg p-3 mx-2 transition-all duration-200 flex gap-3" style="max-width: 98vw; max-height: 95vh; width: 98vw;">
             <!-- Left side: Video and controls -->
             <div class="flex-1 flex flex-col min-w-0">
                 <div class="flex justify-between items-center mb-2 gap-2">
                     <input type="text" id="previewFilename" class="flex-1 text-sm font-semibold text-gray-800 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
                     <button onclick="closePreview()" class="text-gray-500 hover:text-gray-700 text-xl ml-2">&times;</button>
                 </div>
-                <video id="previewVideo" class="w-full bg-black rounded flex-1" style="max-height: 70vh;" controls preload="auto" tabindex="-1">
+                <video id="previewVideo" class="w-full bg-black rounded flex-1" style="max-height: 85vh;" controls preload="auto" tabindex="-1">
                     Your browser does not support video playback.
                 </video>
                 <div id="videoError" class="hidden text-center text-xs mt-1 p-2 bg-orange-50 rounded">
@@ -326,10 +326,12 @@
             fileInput.value = ''; // Reset so same file can be selected again
         }
 
-        async function uploadFile(file) {
-            const formData = new FormData();
-            formData.append('file', file);
+        // Cloudflare Worker URL for cloud uploads
+        const WORKER_URL = 'https://video-chopper-upload.kdrivas1989.workers.dev';
+        // Detect if running locally
+        const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
+        async function uploadFile(file) {
             const tempId = 'temp-' + Date.now();
             addVideoCard(tempId, file.name, 0, '00:00:00', true);
 
@@ -337,51 +339,113 @@
             updateUploadProgress(tempId, 0, `0/${fileSizeMB} MB`);
 
             try {
-                const data = await new Promise((resolve, reject) => {
-                    const xhr = new XMLHttpRequest();
+                let data;
 
-                    xhr.upload.addEventListener('progress', (e) => {
-                        if (e.lengthComputable) {
-                            const percent = Math.round((e.loaded / e.total) * 100);
-                            const loadedMB = (e.loaded / (1024 * 1024)).toFixed(1);
-                            updateUploadProgress(tempId, percent, `${loadedMB}/${fileSizeMB} MB`);
-                        }
+                if (IS_LOCAL) {
+                    // Local: upload directly to server (fast, no cloud needed)
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    data = await new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+
+                        xhr.upload.addEventListener('progress', (e) => {
+                            if (e.lengthComputable) {
+                                const percent = Math.round((e.loaded / e.total) * 100);
+                                const loadedMB = (e.loaded / (1024 * 1024)).toFixed(1);
+                                updateUploadProgress(tempId, percent, `${loadedMB}/${fileSizeMB} MB`);
+                            }
+                        });
+
+                        xhr.addEventListener('load', () => {
+                            if (xhr.status === 200) {
+                                try { resolve(JSON.parse(xhr.responseText)); }
+                                catch (e) { reject(new Error('Invalid response')); }
+                            } else {
+                                try {
+                                    const err = JSON.parse(xhr.responseText);
+                                    reject(new Error(err.error || 'Upload failed'));
+                                } catch (e) { reject(new Error('Upload failed: ' + xhr.status)); }
+                            }
+                        });
+
+                        xhr.addEventListener('error', () => reject(new Error('Network error')));
+                        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+                        xhr.open('POST', '/upload');
+                        xhr.send(formData);
                     });
 
-                    xhr.addEventListener('load', () => {
-                        if (xhr.status === 200) {
-                            try {
-                                resolve(JSON.parse(xhr.responseText));
-                            } catch (e) {
-                                reject(new Error('Invalid response'));
+                    removeVideoCard(tempId);
+                    data.start_time = data.start_time || '0.000s';
+                    data.end_time = data.end_time || data.duration_str;
+                    data.segments = [{ start: '0.000s', end: data.duration_str || '0.000s', team: '', round: '' }];
+
+                    const isDuplicate = Object.values(videos).some(v => v.filename === data.filename);
+                    data.isDuplicate = isDuplicate;
+
+                    videos[data.id] = data;
+                    addVideoCard(data.id, data.filename, data.duration, data.duration_str, false, data.browser_playable, isDuplicate);
+                } else {
+                    // Cloud: upload to Cloudflare Worker (fast, bypasses CORS)
+                    const workerData = await new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+
+                        xhr.upload.addEventListener('progress', (e) => {
+                            if (e.lengthComputable) {
+                                const percent = Math.round((e.loaded / e.total) * 100);
+                                const loadedMB = (e.loaded / (1024 * 1024)).toFixed(1);
+                                updateUploadProgress(tempId, percent, `${loadedMB}/${fileSizeMB} MB`);
                             }
-                        } else {
-                            try {
-                                const err = JSON.parse(xhr.responseText);
-                                reject(new Error(err.error || 'Upload failed'));
-                            } catch (e) {
-                                reject(new Error('Upload failed: ' + xhr.status));
+                        });
+
+                        xhr.addEventListener('load', () => {
+                            if (xhr.status === 200) {
+                                try { resolve(JSON.parse(xhr.responseText)); }
+                                catch (e) { reject(new Error('Invalid response')); }
+                            } else {
+                                try {
+                                    const err = JSON.parse(xhr.responseText);
+                                    reject(new Error(err.error || 'Upload failed'));
+                                } catch (e) { reject(new Error('Upload failed: ' + xhr.status)); }
                             }
-                        }
+                        });
+
+                        xhr.addEventListener('error', () => reject(new Error('Network error')));
+                        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+                        xhr.open('POST', `${WORKER_URL}/upload`);
+                        xhr.setRequestHeader('X-Filename', file.name);
+                        xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+                        xhr.send(file);
                     });
 
-                    xhr.addEventListener('error', () => reject(new Error('Network error')));
-                    xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+                    // Register video with our server
+                    const confirmRes = await fetch('/b2/confirm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            video_id: workerData.video_id,
+                            b2_key: workerData.key,
+                            filename: workerData.filename
+                        })
+                    });
+                    data = await confirmRes.json();
 
-                    xhr.open('POST', '/upload');
-                    xhr.send(formData);
-                });
+                    removeVideoCard(tempId);
+                    data.start_time = data.start_time || '0.000s';
+                    data.end_time = data.end_time || data.duration_str;
+                    data.segments = [{ start: '0.000s', end: data.duration_str || '0.000s', team: '', round: '' }];
+                    data.r2_key = workerData.key;
+                    data.worker_url = `${WORKER_URL}/video/${encodeURIComponent(workerData.key)}`;
 
-                removeVideoCard(tempId);
-                data.start_time = data.start_time || '0.000s';
-                data.end_time = data.end_time || data.duration_str;
-                data.segments = [{ start: '0.000s', end: data.duration_str || '0.000s', team: '', round: '' }];
+                    const isDuplicate = Object.values(videos).some(v => v.filename === data.filename);
+                    data.isDuplicate = isDuplicate;
 
-                const isDuplicate = Object.values(videos).some(v => v.filename === data.filename);
-                data.isDuplicate = isDuplicate;
+                    videos[data.id] = data;
+                    addVideoCard(data.id, data.filename, data.duration, data.duration_str, false, data.browser_playable, isDuplicate);
+                }
 
-                videos[data.id] = data;
-                addVideoCard(data.id, data.filename, data.duration, data.duration_str, false, data.browser_playable, isDuplicate);
                 updateTrimAllVisibility();
             } catch (error) {
                 removeVideoCard(tempId);
@@ -933,14 +997,20 @@
             previewVideoEl.pause();
             previewVideoEl.currentTime = 0;
 
-            // Determine video URL
+            // Determine video URL - use Worker URL for R2-stored videos
             let videoUrl;
-            try {
-                const statusRes = await fetch(`/preview/status/${id}`);
-                const status = await statusRes.json();
-                videoUrl = (status.exists) ? `/preview/${id}` : `/video/${id}`;
-            } catch {
-                videoUrl = `/video/${id}`;
+            if (video.worker_url) {
+                // Video is in R2, play directly from Worker
+                videoUrl = video.worker_url;
+            } else {
+                // Local video, use server endpoints
+                try {
+                    const statusRes = await fetch(`/preview/status/${id}`);
+                    const status = await statusRes.json();
+                    videoUrl = (status.exists) ? `/preview/${id}` : `/video/${id}`;
+                } catch {
+                    videoUrl = `/video/${id}`;
+                }
             }
 
             // Store URL for fallback
@@ -992,10 +1062,10 @@
         const previewSizes = {
             sm: { width: '900px', height: '70vh' },
             md: { width: '1200px', height: '80vh' },
-            lg: { width: '1500px', height: '88vh' },
-            xl: { width: '85vw', height: '85vh' }
+            lg: { width: '95vw', height: '90vh' },
+            xl: { width: '98vw', height: '95vh' }
         };
-        let currentPreviewSize = 'lg';
+        let currentPreviewSize = 'xl';
 
         function setPreviewSize(size) {
             const container = document.getElementById('previewContainer');
