@@ -327,109 +327,86 @@
         }
 
         async function uploadFile(file) {
-            const formData = new FormData();
-            formData.append('file', file);
-
             // Create placeholder card with progress
             const tempId = 'temp-' + Date.now();
             addVideoCard(tempId, file.name, 0, '00:00:00', true);
 
-            // Format file size
             const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
             updateUploadProgress(tempId, 0, `0/${fileSizeMB} MB`);
 
-            // Fallback animation for iOS (progress events unreliable)
-            let fakeProgress = 0;
-            let uploadComplete = false;
-            const progressInterval = setInterval(() => {
-                if (uploadComplete) {
-                    fakeProgress = 100;
-                } else if (fakeProgress < 95) {
-                    fakeProgress += Math.random() * 3;
-                    fakeProgress = Math.min(fakeProgress, 95);
-                }
-            }, 500);
-
             try {
-                // Use XMLHttpRequest for upload progress
+                // Step 1: Get presigned URL from server
+                updateUploadProgress(tempId, 5, 'Preparing upload...');
+                const presignRes = await fetch('/b2/presign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: file.name,
+                        content_type: file.type || 'video/mp4'
+                    })
+                });
+
+                if (!presignRes.ok) {
+                    const err = await presignRes.json();
+                    throw new Error(err.error || 'Failed to get upload URL');
+                }
+
+                const { upload_url, video_id, b2_key } = await presignRes.json();
+
+                // Step 2: Upload directly to B2
                 const data = await new Promise((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
-                    let hasRealProgress = false;
 
                     xhr.upload.addEventListener('progress', (e) => {
                         if (e.lengthComputable) {
-                            hasRealProgress = true;
                             const percent = Math.round((e.loaded / e.total) * 100);
                             const loadedMB = (e.loaded / (1024 * 1024)).toFixed(1);
                             updateUploadProgress(tempId, percent, `${loadedMB}/${fileSizeMB} MB`);
-                            if (percent >= 100) {
-                                uploadComplete = true;
-                            }
                         }
                     });
 
-                    xhr.upload.addEventListener('load', () => {
-                        uploadComplete = true;
-                        updateUploadProgress(tempId, 100, 'Processing video...');
-                    });
-
-                    // Fallback progress updater
-                    const fallbackInterval = setInterval(() => {
-                        if (uploadComplete) {
-                            updateUploadProgress(tempId, 100, 'Processing video...');
-                        } else if (!hasRealProgress && fakeProgress > 0) {
-                            updateUploadProgress(tempId, Math.round(fakeProgress), `Uploading ${fileSizeMB} MB...`);
-                        }
-                    }, 500);
-
-                    xhr.addEventListener('load', () => {
-                        clearInterval(fallbackInterval);
-                        clearInterval(progressInterval);
-                        updateUploadProgress(tempId, 100, `${fileSizeMB}/${fileSizeMB} MB`);
-
+                    xhr.addEventListener('load', async () => {
                         if (xhr.status === 200) {
+                            updateUploadProgress(tempId, 100, 'Confirming...');
+                            // Step 3: Confirm upload with our server
                             try {
-                                resolve(JSON.parse(xhr.responseText));
+                                const confirmRes = await fetch('/b2/confirm', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        video_id: video_id,
+                                        b2_key: b2_key,
+                                        filename: file.name
+                                    })
+                                });
+                                if (confirmRes.ok) {
+                                    resolve(await confirmRes.json());
+                                } else {
+                                    const err = await confirmRes.json();
+                                    reject(new Error(err.error || 'Confirm failed'));
+                                }
                             } catch (e) {
-                                reject(new Error('Invalid response'));
+                                reject(e);
                             }
                         } else {
-                            try {
-                                const err = JSON.parse(xhr.responseText);
-                                reject(new Error(err.error || 'Upload failed'));
-                            } catch (e) {
-                                reject(new Error('Upload failed: ' + xhr.status));
-                            }
+                            reject(new Error('B2 upload failed: ' + xhr.status));
                         }
                     });
 
-                    xhr.addEventListener('error', () => {
-                        clearInterval(fallbackInterval);
-                        clearInterval(progressInterval);
-                        reject(new Error('Network error'));
-                    });
-                    xhr.addEventListener('abort', () => {
-                        clearInterval(fallbackInterval);
-                        clearInterval(progressInterval);
-                        reject(new Error('Upload cancelled'));
-                    });
+                    xhr.addEventListener('error', () => reject(new Error('Network error')));
+                    xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
 
-                    xhr.open('POST', '/upload');
-                    xhr.send(formData);
+                    xhr.open('PUT', upload_url);
+                    xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+                    xhr.send(file);
                 });
-
-                clearInterval(progressInterval);
 
                 // Remove placeholder and add real card
                 removeVideoCard(tempId);
-                // Store start and end times
                 data.start_time = data.start_time || '0.000s';
                 data.end_time = data.end_time || data.duration_str;
-
-                // Initialize segments array with one default segment
                 data.segments = [{ start: '0.000s', end: data.duration_str || '0.000s', team: '', round: '' }];
 
-                // Check for duplicate filename
                 const isDuplicate = Object.values(videos).some(v => v.filename === data.filename);
                 data.isDuplicate = isDuplicate;
 
@@ -437,7 +414,6 @@
                 addVideoCard(data.id, data.filename, data.duration, data.duration_str, false, data.browser_playable, isDuplicate);
                 updateTrimAllVisibility();
 
-                // If not browser playable, poll for transcoding completion
                 if (!data.browser_playable) {
                     pollTranscodeStatus(data.id);
                 }

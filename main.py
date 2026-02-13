@@ -9,8 +9,29 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 from moviepy import VideoFileClip
+import boto3
+from botocore.config import Config
 
 app = Flask(__name__)
+
+# Backblaze B2 Configuration
+B2_KEY_ID = os.environ.get('B2_KEY_ID', '005fa76bc1604e40000000002')
+B2_APP_KEY = os.environ.get('B2_APP_KEY', 'K00537bYIqWSls9LstqUVs0PSgB/p+Q')
+B2_BUCKET = os.environ.get('B2_BUCKET', 'video-chopper')
+B2_ENDPOINT = 'https://s3.us-west-004.backblazeb2.com'
+
+# Initialize B2 client (S3-compatible)
+b2_client = None
+try:
+    b2_client = boto3.client(
+        's3',
+        endpoint_url=B2_ENDPOINT,
+        aws_access_key_id=B2_KEY_ID,
+        aws_secret_access_key=B2_APP_KEY,
+        config=Config(signature_version='s3v4')
+    )
+except Exception as e:
+    print(f"B2 client initialization failed: {e}")
 
 # Use appropriate directory for file storage based on environment
 def get_app_data_dir():
@@ -583,6 +604,103 @@ def save_to_folder():
             saved_files.append(output['name'])
 
     return jsonify({'success': True, 'files': saved_files, 'folder': folder_path})
+
+
+@app.route('/b2/presign', methods=['POST'])
+def b2_presign():
+    """Generate a presigned URL for direct upload to Backblaze B2."""
+    if not b2_client:
+        return jsonify({'error': 'B2 not configured'}), 500
+
+    data = request.json
+    filename = secure_filename(data.get('filename', 'video.mp4'))
+    content_type = data.get('content_type', 'video/mp4')
+
+    video_id = str(uuid.uuid4())
+    b2_key = f"uploads/{video_id}_{filename}"
+
+    try:
+        presigned_url = b2_client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': B2_BUCKET,
+                'Key': b2_key,
+                'ContentType': content_type
+            },
+            ExpiresIn=3600  # 1 hour
+        )
+
+        return jsonify({
+            'upload_url': presigned_url,
+            'video_id': video_id,
+            'b2_key': b2_key
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/b2/confirm', methods=['POST'])
+def b2_confirm():
+    """Confirm B2 upload and register the video."""
+    data = request.json
+    video_id = data.get('video_id')
+    b2_key = data.get('b2_key')
+    filename = data.get('filename', 'video.mp4')
+
+    if not video_id or not b2_key:
+        return jsonify({'error': 'Missing video_id or b2_key'}), 400
+
+    # Store video reference (file stays in B2)
+    b2_url = f"{B2_ENDPOINT}/{B2_BUCKET}/{b2_key}"
+
+    videos[video_id] = {
+        'id': video_id,
+        'filename': filename,
+        'filepath': None,  # Not local
+        'b2_key': b2_key,
+        'b2_url': b2_url,
+        'duration': 0,
+        'duration_str': '0.000s',
+        'browser_playable': True,
+        'preview_ready': False
+    }
+
+    return jsonify({
+        'id': video_id,
+        'filename': filename,
+        'duration': 0,
+        'duration_str': '0.000s',
+        'start_time': '0.000s',
+        'end_time': '0.000s',
+        'browser_playable': True
+    })
+
+
+@app.route('/b2/download/<video_id>')
+def b2_download(video_id):
+    """Download video from B2 to local temp for processing."""
+    if video_id not in videos:
+        return jsonify({'error': 'Video not found'}), 404
+
+    video = videos[video_id]
+
+    # If already local, return the path
+    if video.get('filepath') and os.path.exists(video['filepath']):
+        return jsonify({'filepath': video['filepath']})
+
+    # Download from B2
+    b2_key = video.get('b2_key')
+    if not b2_key:
+        return jsonify({'error': 'No B2 key found'}), 400
+
+    local_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{video_id}_{video['filename']}")
+
+    try:
+        b2_client.download_file(B2_BUCKET, b2_key, local_path)
+        video['filepath'] = local_path
+        return jsonify({'filepath': local_path})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
