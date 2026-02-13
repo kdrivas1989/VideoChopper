@@ -327,9 +327,6 @@
         }
 
         async function uploadFile(file) {
-            const formData = new FormData();
-            formData.append('file', file);
-
             const tempId = 'temp-' + Date.now();
             addVideoCard(tempId, file.name, 0, '00:00:00', true);
 
@@ -337,6 +334,18 @@
             updateUploadProgress(tempId, 0, `0/${fileSizeMB} MB`);
 
             try {
+                // Get presigned URL for direct R2 upload
+                updateUploadProgress(tempId, 2, 'Preparing...');
+                const presignRes = await fetch('/b2/presign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: file.name, content_type: file.type || 'video/mp4' })
+                });
+
+                if (!presignRes.ok) throw new Error('Failed to get upload URL');
+                const { upload_url, video_id, b2_key } = await presignRes.json();
+
+                // Upload directly to R2
                 const data = await new Promise((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
 
@@ -348,28 +357,27 @@
                         }
                     });
 
-                    xhr.addEventListener('load', () => {
-                        if (xhr.status === 200) {
-                            try {
-                                resolve(JSON.parse(xhr.responseText));
-                            } catch (e) {
-                                reject(new Error('Invalid response'));
-                            }
+                    xhr.addEventListener('load', async () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            // Confirm upload with server
+                            const confirmRes = await fetch('/b2/confirm', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ video_id, b2_key, filename: file.name })
+                            });
+                            if (confirmRes.ok) resolve(await confirmRes.json());
+                            else reject(new Error('Confirm failed'));
                         } else {
-                            try {
-                                const err = JSON.parse(xhr.responseText);
-                                reject(new Error(err.error || 'Upload failed'));
-                            } catch (e) {
-                                reject(new Error('Upload failed: ' + xhr.status));
-                            }
+                            reject(new Error('Upload failed: ' + xhr.status));
                         }
                     });
 
-                    xhr.addEventListener('error', () => reject(new Error('Network error')));
+                    xhr.addEventListener('error', () => reject(new Error('Network error - check CORS settings')));
                     xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
 
-                    xhr.open('POST', '/upload');
-                    xhr.send(formData);
+                    xhr.open('PUT', upload_url);
+                    xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+                    xhr.send(file);
                 });
 
                 removeVideoCard(tempId);
@@ -383,10 +391,6 @@
                 videos[data.id] = data;
                 addVideoCard(data.id, data.filename, data.duration, data.duration_str, false, data.browser_playable, isDuplicate);
                 updateTrimAllVisibility();
-
-                if (!data.browser_playable) {
-                    pollTranscodeStatus(data.id);
-                }
             } catch (error) {
                 removeVideoCard(tempId);
                 alert('Upload failed: ' + error.message);
