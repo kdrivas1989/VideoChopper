@@ -18,5 +18,5 @@ COPY static/ static/
 RUN mkdir -p /tmp/video-chopper/uploads /tmp/video-chopper/output /tmp/video-chopper/previews
 
 # Railway sets PORT env variable
-ENV PORT=8080
+ENV PORT=8000
 CMD ["sh", "-c", "gunicorn main:app --bind 0.0.0.0:$PORT --timeout 0 --workers 2"]
